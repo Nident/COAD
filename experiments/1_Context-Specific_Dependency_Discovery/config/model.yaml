@@ -1,0 +1,102 @@
+model:
+  name: deepseek-flash
+  base_url: https://api.deepseek.com
+  api_key: API_KEY_REMOVED
+
+  temperature: 0.2
+  top_p: 1.0
+  max_tokens: 4096
+  timeout: 120
+  max_retries: 2
+  retry_attempts: 3
+  retry_delay_seconds: 5
+  streaming: false
+
+  system_prompt: |-
+    You are an assistant specializing in CCLE and CRISPR data analysis.
+    Analyze only the supplied records. Do not invent measurements, mutations, or model IDs.
+    Follow the requested stages in order and report concise evidence for every conclusion.
+    Return valid JSON that matches the requested schema exactly.
+
+  user_prompt_template: |-
+    Analyze dependency on the gene {gene} in this context: {context}.
+
+    The CRISPR target has three possible categories:
+    - no_effect: knockout does not meaningfully reduce cell survival;
+    - weak_effect: knockout causes a limited reduction in survival;
+    - strong_effect: knockout causes a large reduction in survival.
+
+    The training records contain known CRISPR categories. The test records contain
+    molecular and donor features only. Their CRISPR categories are deliberately hidden.
+    Each table uses compact JSON with a columns array and a data array. In every data
+    row, values follow the same order as the columns array. Every prepared row is present.
+    A missing mutation record means that no supplied mutation was observed for that
+    gene and ModelID; it is not proof that the model has no mutation.
+
+    STAGE 1 — expression evidence
+    Examine these three training tables together by matching ModelID:
+    Donor data: {train_donor_data}
+    Expression data: {train_expression_data}
+    CRISPR data: {train_crispr_data}
+
+    Determine whether expression level and donor context distinguish the three CRISPR
+    categories. Compare category sizes, value ranges, central tendencies, overlap, and
+    visible exceptions. State which observations support the conclusion and name only
+    ModelIDs present in the supplied records.
+
+    STAGE 2 — mutation evidence
+    Reuse the training Donor and CRISPR tables from Stage 1, then examine this table:
+    Mutation data: {train_mutation_data}
+
+    Match all three tables by ModelID. Determine whether mutation presence, protein
+    change, variant type, hotspot status,
+    or donor context is associated with the CRISPR categories. Distinguish an observed
+    association from a causal claim. State the evidence and important exceptions.
+
+    STAGE 3 — integrated conclusion
+    Combine the expression and mutation evidence. Explain which signals appear useful,
+    which appear weak, and what cannot be concluded from these data.
+
+    STAGE 4 — held-out prediction
+    The following ModelIDs were absent from every training table:
+    {test_model_ids}
+
+    Test donor data: {test_donor_data}
+    Test expression data: {test_expression_data}
+    Test mutation data: {test_mutation_data}
+
+    Predict exactly one category for each of the {test_case_count} test ModelIDs. Use only patterns
+    found in the training records. Confidence must be a number from 0 to 1. Lower it
+    when evidence conflicts or relevant values are missing.
+
+    Return JSON in exactly this structure:
+
+    {{
+      "gene": "GENE_NAME",
+      "expression_analysis": {{
+        "conclusion": "Concise conclusion based on expression, donor, and CRISPR data",
+        "evidence": [
+          "Specific observation supported by the supplied data",
+          "Another specific observation supported by the supplied data"
+        ],
+        "relevant_model_ids": ["ACH-XXXXXX", "ACH-YYYYYY"]
+      }},
+      "mutation_analysis": {{
+        "conclusion": "Concise conclusion based on mutation, donor, and CRISPR data",
+        "evidence": [
+          "Specific mutation-related observation",
+          "Important exception or conflicting observation"
+        ],
+        "relevant_model_ids": ["ACH-XXXXXX", "ACH-YYYYYY"]
+      }},
+      "integrated_conclusion": "Combined conclusion from expression and mutation evidence",
+      "test_predictions": {test_predictions_json},
+      "limitations": [
+        "Limitation of the supplied data or analysis"
+      ]
+    }}
+
+    Replace every example value with the result of the analysis. The gene field must
+    equal {gene}. Use each ModelID from {test_model_ids} exactly once in test_predictions.
+    predicted_category must be exactly one of: no_effect, weak_effect, strong_effect.
+    Do not add fields. Do not include Markdown or text outside the JSON object.

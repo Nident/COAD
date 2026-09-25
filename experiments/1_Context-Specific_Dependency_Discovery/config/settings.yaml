@@ -1,0 +1,14 @@
+data:
+  data_path: ../../../data
+  files:
+    crispr: CRISPRGeneEffect_GT.csv
+    donor: Model.csv
+    expression: OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv
+    mutations: OmicsSomaticMutations.csv
+    conditions: ModelCondition.csv
+
+analysis:
+  gene_limit: 1
+  train_model_limit: 50
+  test_model_limit: 10
+  random_state: 42

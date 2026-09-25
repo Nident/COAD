@@ -1,2 +1,9 @@
 *.csv
+*.md
 .DS_Store
+
+__pycache__/
+prompts/
+results/
+test.ipynb
+
