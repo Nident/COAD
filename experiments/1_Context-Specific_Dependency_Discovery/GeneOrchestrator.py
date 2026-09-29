@@ -145,13 +145,16 @@ class GeneOrchestrator:
 
     def iter_genes(
         self,
-        gene_limit,
+        gene_start_index,
+        gene_end_index,
         train_model_limit,
         test_model_limit,
         random_state,
     ):
         gene_columns = self.crispr.columns.drop("ModelID")
-        for gene in gene_columns[:gene_limit]:
+        selected_genes = gene_columns[gene_start_index:gene_end_index]
+
+        for gene in selected_genes:
             yield self.prepare_gene(
                 gene,
                 train_size=train_model_limit,
@@ -194,7 +197,8 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for gene_data in orchestrator.iter_genes(
-        gene_limit=analysis_config["gene_limit"],
+        gene_start_index=analysis_config["gene_start_index"],
+        gene_end_index=analysis_config["gene_end_index"],
         train_model_limit=analysis_config["train_model_limit"],
         test_model_limit=analysis_config["test_model_limit"],
         random_state=analysis_config["random_state"],

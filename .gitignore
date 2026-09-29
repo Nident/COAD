@@ -1,9 +1,11 @@
 *.csv
 *.md
 .DS_Store
+keys.txt
 
 __pycache__/
 prompts/
 results/
 test.ipynb
+
 
