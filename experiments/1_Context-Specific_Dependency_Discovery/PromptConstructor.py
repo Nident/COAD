@@ -7,16 +7,19 @@ from langchain_core.prompts import ChatPromptTemplate
 
 
 class PromptConstructor:
-    def __init__(self, config_path=None):
+    def __init__(self, prompt_name="user_prompt_1", config_path=None):
         if config_path is None:
-            config_path = Path(__file__).parent / "config" / "model.yaml"
+            config_path = Path(__file__).parent / "config" / "prompt.yaml"
 
         with Path(config_path).open(encoding="utf-8") as file:
-            config = yaml.safe_load(file)["model"]
+            config = yaml.safe_load(file)["prompts"]
+
+        if prompt_name not in config:
+            raise KeyError(f"Prompt {prompt_name!r} is not defined in {config_path}")
 
         self.prompt_template = ChatPromptTemplate.from_messages([
             ("system", config["system_prompt"]),
-            ("human", config["user_prompt_template"]),
+            ("human", config[prompt_name]),
         ])
 
     @staticmethod

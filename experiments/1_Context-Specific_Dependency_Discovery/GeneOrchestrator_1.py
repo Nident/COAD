@@ -1,3 +1,11 @@
+"""Prepare donor and target-gene molecular data for dependency prediction.
+
+This pipeline collects donor characteristics, expression of one selected gene,
+mutations in that gene, and its known CRISPR effect across training cell models.
+It then asks the language model to predict how knocking out that specific gene
+will affect cell survival in held-out models.
+"""
+
 import json
 from pathlib import Path
 
@@ -189,7 +197,7 @@ def main():
     reader = DataReader(project_dir / "config" / "settings.yaml")
     orchestrator = GeneOrchestrator(reader.read_all())
     analysis_config = reader.config["analysis"]
-    prompt_constructor = PromptConstructor()
+    prompt_constructor = PromptConstructor(prompt_name="user_prompt_1")
     model = Model()
 
     output_dir = project_dir / "results"

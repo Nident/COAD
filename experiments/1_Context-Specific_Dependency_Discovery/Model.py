@@ -1,4 +1,7 @@
+import json
 import time
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -81,7 +84,88 @@ class Model:
 
         return result
 
-    def retry(self, prompt, expected_gene=None, expected_model_ids=None):
+    @staticmethod
+    def _prompt_size(prompt):
+        if hasattr(prompt, "to_messages"):
+            return sum(len(str(message.content)) for message in prompt.to_messages())
+        return len(str(prompt))
+
+    @staticmethod
+    def _exception_chain(error):
+        chain = []
+        current = error
+        seen = set()
+
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            item = {
+                "type": f"{type(current).__module__}.{type(current).__name__}",
+                "message": str(current),
+            }
+
+            response = getattr(current, "response", None)
+            if response is not None:
+                item["http_status"] = getattr(response, "status_code", None)
+                try:
+                    item["response_body"] = response.text[:10000]
+                except Exception:
+                    item["response_body"] = None
+
+            request = getattr(current, "request", None)
+            if request is not None:
+                item["request_method"] = getattr(request, "method", None)
+                item["request_url"] = str(getattr(request, "url", ""))
+
+            chain.append(item)
+            current = current.__cause__ or current.__context__
+
+        return chain
+
+    def _save_error(
+        self,
+        error,
+        attempt,
+        prompt,
+        expected_gene,
+        expected_model_ids,
+        error_dir=None,
+    ):
+        timestamp = datetime.now(timezone.utc)
+        safe_gene = (expected_gene or "unknown_gene").replace("/", "_")
+        if error_dir is None:
+            error_dir = Path(__file__).parent / "errors"
+        else:
+            error_dir = Path(error_dir)
+        error_dir.mkdir(parents=True, exist_ok=True)
+        error_path = error_dir / (
+            f"{timestamp.strftime('%Y%m%dT%H%M%S_%fZ')}_"
+            f"{safe_gene}_attempt_{attempt}.json"
+        )
+
+        diagnostic = {
+            "timestamp_utc": timestamp.isoformat(),
+            "attempt": attempt,
+            "maximum_attempts": self.retry_attempts,
+            "gene": expected_gene,
+            "test_model_count": len(expected_model_ids or []),
+            "test_model_ids": list(expected_model_ids or []),
+            "prompt_characters": self._prompt_size(prompt),
+            "exception_chain": self._exception_chain(error),
+            "traceback": traceback.format_exc(),
+        }
+        error_path.write_text(
+            json.dumps(diagnostic, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return error_path
+
+    def retry(
+        self,
+        prompt,
+        expected_gene=None,
+        expected_model_ids=None,
+        error_dir=None,
+    ):
         """Retry transport errors and invalid JSON/schema responses."""
         last_error = None
 
@@ -94,6 +178,15 @@ class Model:
                 )
             except Exception as error:
                 last_error = error
+                error_path = self._save_error(
+                    error=error,
+                    attempt=attempt,
+                    prompt=prompt,
+                    expected_gene=expected_gene,
+                    expected_model_ids=expected_model_ids,
+                    error_dir=error_dir,
+                )
+                print(f"Model request attempt {attempt} failed. Details: {error_path}")
                 if attempt < self.retry_attempts:
                     time.sleep(self.retry_delay_seconds)
 
@@ -103,4 +196,4 @@ class Model:
 
 
 if __name__ == "__main__":
-    print("Run GeneOrchestrator.py to build prompts and analyze genes.")
+    print("Run GeneOrchestrator_1.py or GeneOrchestrator_2.py to analyze genes.")
