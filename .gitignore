@@ -1,2 +1,14 @@
 *.csv
+*.md
 .DS_Store
+keys.txt
+
+__pycache__/
+prompts/
+results/
+prompts_2/
+results_2/
+errors/
+test.ipynb
+**/config/secrets.yaml
+experiments/2_CSDD_MULTI_LLM/runs/
