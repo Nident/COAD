@@ -1,7 +1,7 @@
 model:
   name: deepseek-flash
   base_url: https://api.deepseek.com
-  api_key: sk-22a6b51c88584bf48da6ab69bed3504d
+  api_key: sk-..
   temperature: 0.2
   top_p: 1.0
   max_tokens: 16384

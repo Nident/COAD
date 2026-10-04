@@ -1,0 +1,107 @@
+system: |-
+  You analyze CCLE and CRISPR dependency data.
+  Use only the supplied records. Do not invent measurements or ModelIDs.
+  Return exactly one JSON object matching the supplied JSON Schema.
+  Every required field must be present. Do not add fields outside the schema.
+  Do not include Markdown or text outside the JSON object.
+
+donor: |-
+  Target gene: {gene}
+  Held-out ModelID: {test_model_id}
+
+  Known training CRISPR categories:
+  {train_crispr}
+
+  Training donor table:
+  {train_table}
+
+  Held-out donor row:
+  {test_table}
+
+  Form one hypothesis about whether donor and tumor context predict the CRISPR effect
+  for the held-out model. Compare the three effect categories in the training data.
+  Explain the repeated pattern, exceptions, and evidence ModelIDs. End with one predicted
+  category: no_effect, weak_effect, or strong_effect.
+
+  Required JSON Schema:
+  {response_schema}
+
+  Example JSON structure:
+  {response_example}
+
+expression: |-
+  Target gene: {gene}
+  Held-out ModelID: {test_model_id}
+
+  Known training CRISPR categories:
+  {train_crispr}
+
+  Training expression table. The target gene is the first gene column and all other
+  available protein-coding genes follow it:
+  {train_table}
+
+  Held-out expression row with the same gene columns:
+  {test_table}
+
+  Form one hypothesis about whether expression of the target gene and the broader
+  transcriptional context predict its CRISPR effect in the held-out model. Compare repeated
+  patterns and exceptions across the three training categories. Prefer recurring signals
+  over isolated gene values. End with one predicted category: no_effect, weak_effect,
+  or strong_effect.
+
+  Required JSON Schema:
+  {response_schema}
+
+  Example JSON structure:
+  {response_example}
+
+mutation: |-
+  Target gene: {gene}
+  Held-out ModelID: {test_model_id}
+
+  Known training CRISPR categories:
+  {train_crispr}
+
+  Training target-gene mutation table:
+  {train_table}
+
+  Held-out target-gene mutation rows:
+  {test_table}
+
+  Form one hypothesis about whether mutation presence, protein change, variant type,
+  consequence, impact, hotspot status, allele frequency, or depth predicts the CRISPR
+  effect for the held-out model. Treat missing mutation rows as no supplied observation,
+  not proof of wild type. End with one predicted category: no_effect, weak_effect,
+  or strong_effect.
+
+  Required JSON Schema:
+  {response_schema}
+
+  Example JSON structure:
+  {response_example}
+
+judge: |-
+  Target gene: {gene}
+  Held-out ModelID: {test_model_id}
+
+  Donor analyst hypothesis:
+  {donor_hypothesis}
+
+  Expression analyst hypothesis:
+  {expression_hypothesis}
+
+  Mutation analyst hypothesis:
+  {mutation_hypothesis}
+
+  Compare the three hypotheses and their reasoning. Identify agreements, conflicts,
+  evidence quality, and missing evidence. Give more weight to repeated training patterns
+  than to isolated examples or unsupported biological claims. Return one final category
+  for the held-out ModelID: no_effect, weak_effect, or strong_effect. A null mutation
+  prediction means that no target-gene mutation was detected in the supplied test data;
+  treat it as missing mutation evidence, not as evidence for no_effect.
+
+  Required JSON Schema:
+  {response_schema}
+
+  Example JSON structure:
+  {response_example}

@@ -3,3 +3,4 @@ numpy
 scikit-learn
 PyYAML
 langchain-openai
+langgraph
