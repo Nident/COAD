@@ -6,6 +6,7 @@ keys.txt
 __pycache__/
 prompts/
 results/
+static_gene_selection/
 prompts_2/
 results_2/
 errors/

@@ -4,6 +4,7 @@ data:
   donor: Model.csv
   expression: OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv
   mutations: OmicsSomaticMutations.csv
+  related_genes: ../outputs/static_gene_selection/target_related_genes.json
 
 analysis:
   gene_start_index: 2

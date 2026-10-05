@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-import re
+import json
 from typing import Any, cast
 
 import pandas as pd
@@ -44,9 +44,18 @@ class DataReader:
             ),
         }
 
+    def read_gene_relations(self) -> dict[str, list[str]]:
+        path = (
+            self.config_path.parent
+            / self.config["data"]["related_genes"]
+        ).resolve()
+        return cast(
+            dict[str, list[str]],
+            json.loads(path.read_text(encoding="utf-8")),
+        )
+
 
 class DataPreparator:
-    GENE_COLUMN = re.compile(r".+ \(\d+\)$")
     DONOR_COLUMNS = [
         "ModelID",
         "DepmapModelType",
@@ -69,7 +78,12 @@ class DataPreparator:
         "DP",
     ]
 
-    def __init__(self, data: dict[str, pd.DataFrame]):
+    def __init__(
+        self,
+        data: dict[str, pd.DataFrame],
+        gene_relations: dict[str, list[str]],
+    ):
+        self.gene_relations = gene_relations
         self.crispr = data["crispr"].rename(columns={"Unnamed: 0": "ModelID"})
         model_ids = self.crispr["ModelID"]
         self.donor = cast(
@@ -149,13 +163,15 @@ class DataPreparator:
             for column in self.expression.columns
             if column == gene or column.startswith(f"{gene_symbol} (")
         )
+        related_genes = self.gene_relations[gene]
         expression_columns = [
-            column
-            for column in self.expression.columns
-            if self.GENE_COLUMN.fullmatch(str(column))
+            expression_column,
+            *[
+                column
+                for column in related_genes
+                if column != expression_column
+            ],
         ]
-        expression_columns.remove(expression_column)
-        expression_columns.insert(0, expression_column)
         expression = cast(
             pd.DataFrame,
             self.expression.loc[

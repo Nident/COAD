@@ -107,7 +107,10 @@ def save_run(
 def main() -> None:
     project_dir = Path(__file__).parent
     reader = DataReader(project_dir / "config" / "settings.yaml")
-    preparator = DataPreparator(reader.read())
+    preparator = DataPreparator(
+        reader.read(),
+        reader.read_gene_relations(),
+    )
     analysis = reader.config["analysis"]
     graph = DependencyGraph(project_dir / "config")
     output_dir = project_dir / "runs"

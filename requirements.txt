@@ -1,6 +1,14 @@
-pandas 
+pandas
 numpy
+scipy
+statsmodels
 scikit-learn
 PyYAML
+pydantic
+langchain-core
 langchain-openai
 langgraph
+jupyterlab
+ipykernel
+nbconvert
+pyright
