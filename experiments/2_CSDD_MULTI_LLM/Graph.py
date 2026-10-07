@@ -7,6 +7,8 @@ from LLM import LLMFactory
 from Prompts import Prompts
 from Schemas import (
     AnalystState,
+    CNVHypothesis,
+    CNVOutput,
     CompletedGraphState,
     DonorOutput,
     DonorHypothesis,
@@ -18,8 +20,8 @@ from Schemas import (
     JudgeOutput,
     MutationOutput,
     MutationHypothesis,
-    NoMutationHypothesis,
-)
+    NoCNVHypothesis,
+    NoMutationHypothesis,)
 
 
 class DependencyGraph:
@@ -29,19 +31,61 @@ class DependencyGraph:
         self.donor_llm = factory.create("donor", DonorHypothesis)
         self.expression_llm = factory.create("expression", ExpressionHypothesis)
         self.mutation_llm = factory.create("mutation", MutationHypothesis)
+        self.cnv_llm = factory.create("cnv", CNVHypothesis)
         self.judge_llm = factory.create("judge", FinalVerdict)
 
         builder = StateGraph(GraphState)
         builder.add_node("donor", self.donor)
         builder.add_node("expression", self.expression)
         builder.add_node("mutation", self.mutation)
+        builder.add_node("cnv", self.cnv)
         builder.add_node("judge", self.judge)
         builder.add_edge(START, "donor")
         builder.add_edge(START, "expression")
         builder.add_edge(START, "mutation")
-        builder.add_edge(["donor", "expression", "mutation"], "judge")
+        builder.add_edge(START, "cnv")
+        builder.add_edge(["donor", "expression", "mutation", "cnv"], "judge")
         builder.add_edge("judge", END)
         self.graph = builder.compile()
+
+    def analyst_prompts(self, state: GraphInput) -> dict[str, str]:
+        prompts = {
+            "donor": self.prompts.text(self.prompts.analyst(
+                role="donor",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_donor"],
+                test_table=state["test_donor"],
+            )),
+            "expression": self.prompts.text(self.prompts.analyst(
+                role="expression",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_expression"],
+                test_table=state["test_expression"],
+            )),
+        }
+        if state["test_has_mutation"]:
+            prompts["mutation"] = self.prompts.text(self.prompts.analyst(
+                role="mutation",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_mutation"],
+                test_table=state["test_mutation"],
+            ))
+        if state["test_has_cnv"]:
+            prompts["cnv"] = self.prompts.text(self.prompts.analyst(
+                role="cnv",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_cnv"],
+                test_table=state["test_cnv"],
+            ))
+        return prompts
 
     def donor(self, state: GraphState) -> DonorOutput:
         prompt = self.prompts.analyst(
@@ -76,8 +120,8 @@ class DependencyGraph:
     def mutation(self, state: GraphState) -> MutationOutput:
         if not state["test_has_mutation"]:
             message = (
-                "No mutations in the target gene were detected for this cell "
-                "model in the supplied data."
+                "No mutations in the target gene or its related genes were "
+                "detected for this cell model in the supplied data."
             )
             return {
                 "mutation_prompt": message,
@@ -86,7 +130,7 @@ class DependencyGraph:
                     hypothesis=message,
                     reasoning=[
                         "The supplied mutation table has no rows for the target "
-                        "gene and held-out ModelID."
+                        "or related genes and held-out ModelID."
                     ],
                     predicted_category=None,
                     confidence=0.0,
@@ -112,6 +156,44 @@ class DependencyGraph:
             "mutation_hypothesis": hypothesis,
         }
 
+    def cnv(self, state: GraphState) -> CNVOutput:
+        if not state["test_has_cnv"]:
+            message = (
+                "No CNV measurements for the target gene or its related genes "
+                "were supplied for this cell model."
+            )
+            return {
+                "cnv_prompt": message,
+                "cnv_hypothesis": NoCNVHypothesis(
+                    hypothesis=message,
+                    reasoning=[
+                        "The supplied CNV table has no row for the held-out "
+                        "ModelID."
+                    ],
+                    predicted_category=None,
+                    confidence=0.0,
+                    evidence_model_ids=[],
+                    limitations=[
+                        "Missing CNV data cannot be interpreted as a neutral "
+                        "copy-number state."
+                    ],
+                ),
+            }
+
+        prompt = self.prompts.analyst(
+            role="cnv",
+            gene=state["gene"],
+            test_model_id=state["test_model_id"],
+            train_crispr=state["train_crispr"],
+            train_table=state["train_cnv"],
+            test_table=state["test_cnv"],
+        )
+        hypothesis = cast(CNVHypothesis, self.cnv_llm.invoke(prompt))
+        return {
+            "cnv_prompt": self.prompts.text(prompt),
+            "cnv_hypothesis": hypothesis,
+        }
+
     def judge(self, state: GraphState) -> JudgeOutput:
         analyst_state = cast(AnalystState, state)
         prompt = self.prompts.judge(
@@ -120,6 +202,7 @@ class DependencyGraph:
             donor=analyst_state["donor_hypothesis"],
             expression=analyst_state["expression_hypothesis"],
             mutation=analyst_state["mutation_hypothesis"],
+            cnv=analyst_state["cnv_hypothesis"],
         )
         verdict = cast(FinalVerdict, self.judge_llm.invoke(prompt))
         return {

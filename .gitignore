@@ -6,9 +6,16 @@ keys.txt
 __pycache__/
 prompts/
 results/
+static_gene_selection/
+first_big_test/
 prompts_2/
 results_2/
 errors/
 test.ipynb
 **/config/secrets.yaml
 experiments/2_CSDD_MULTI_LLM/runs/
+experiments/2_CSDD_MULTI_LLM/prepared_data/
+experiments/2_CSDD_MULTI_LLM/errors/
+experiments/2_CSDD_MULTI_LLM/runs_cnv/
+experiments/2_CSDD_MULTI_LLM/prepared_data_cnv/
+experiments/2_CSDD_MULTI_LLM/errors_cnv/

@@ -1,13 +1,23 @@
 data:
   data_path: ../../../data
-  crispr: CRISPRGeneEffect_GT_all_three_categories.csv
+  crispr: first_big_test/ACO2_50.csv
   donor: Model.csv
   expression: OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv
   mutations: OmicsSomaticMutations.csv
+  cnv: OmicsCNGeneWGS.csv
+  related_genes: ../../../data/static_gene_selection/target_related_genes.jsonl
+
+output:
+  runs: ../runs_cnv
+  prepared_data: ../prepared_data_cnv
+  errors: ../errors_cnv
 
 analysis:
-  gene_start_index: 2
-  gene_end_index: 3
-  train_model_limit: 2
-  test_model_limit: 1
+  gene_start_index: 0
+  gene_end_index: 1
+  train_model_limit: 200
+  test_model_limit: 10
   random_state: 42
+  split_mode: ordered
+  resume_completed_runs: true
+  relation_depth: 1

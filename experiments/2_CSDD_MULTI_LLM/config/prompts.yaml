@@ -36,8 +36,8 @@ expression: |-
   Known training CRISPR categories:
   {train_crispr}
 
-  Training expression table. The target gene is the first gene column and all other
-  available protein-coding genes follow it:
+  Training expression table. The target gene is the first gene column and its
+  recursively selected related genes follow it:
   {train_table}
 
   Held-out expression row with the same gene columns:
@@ -62,10 +62,10 @@ mutation: |-
   Known training CRISPR categories:
   {train_crispr}
 
-  Training target-gene mutation table:
+  Training mutations for the target gene and its recursively selected related genes:
   {train_table}
 
-  Held-out target-gene mutation rows:
+  Held-out mutation rows for the same genes:
   {test_table}
 
   Form one hypothesis about whether mutation presence, protein change, variant type,
@@ -73,6 +73,32 @@ mutation: |-
   effect for the held-out model. Treat missing mutation rows as no supplied observation,
   not proof of wild type. End with one predicted category: no_effect, weak_effect,
   or strong_effect.
+
+  Required JSON Schema:
+  {response_schema}
+
+  Example JSON structure:
+  {response_example}
+
+cnv: |-
+  Target gene: {gene}
+  Held-out ModelID: {test_model_id}
+
+  Known training CRISPR categories:
+  {train_crispr}
+
+  Training copy-number values for the target gene and its recursively selected
+  related genes:
+  {train_table}
+
+  Held-out copy-number row with the same gene columns:
+  {test_table}
+
+  Form one hypothesis about whether copy-number gains, losses, and recurring CNV
+  patterns predict the target gene's CRISPR effect in the held-out model. Compare
+  patterns across no_effect, weak_effect, and strong_effect training models. Treat
+  association as predictive evidence, not proof of causality. End with one predicted
+  category: no_effect, weak_effect, or strong_effect.
 
   Required JSON Schema:
   {response_schema}
@@ -93,11 +119,14 @@ judge: |-
   Mutation analyst hypothesis:
   {mutation_hypothesis}
 
-  Compare the three hypotheses and their reasoning. Identify agreements, conflicts,
+  CNV analyst hypothesis:
+  {cnv_hypothesis}
+
+  Compare the four hypotheses and their reasoning. Identify agreements, conflicts,
   evidence quality, and missing evidence. Give more weight to repeated training patterns
   than to isolated examples or unsupported biological claims. Return one final category
   for the held-out ModelID: no_effect, weak_effect, or strong_effect. A null mutation
-  prediction means that no target-gene mutation was detected in the supplied test data;
+  prediction means that no target-gene or related-gene mutation was detected in the supplied test data;
   treat it as missing mutation evidence, not as evidence for no_effect.
 
   Required JSON Schema:
