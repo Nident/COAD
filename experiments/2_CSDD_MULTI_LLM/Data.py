@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pandas as pd
 import yaml
@@ -161,6 +161,7 @@ class DataPreparator:
         train_size: int,
         test_size: int,
         random_state: int,
+        split_mode: Literal["ordered", "random"],
     ) -> GeneData:
         crispr = cast(
             pd.DataFrame,
@@ -169,18 +170,26 @@ class DataPreparator:
                 ["ModelID", gene],
             ].rename(columns={gene: "EffectCategory"}),
         )
-        test_crispr = cast(
-            pd.DataFrame,
-            crispr.sample(n=test_size, random_state=random_state),
-        )
+        if split_mode == "ordered":
+            train_crispr = cast(pd.DataFrame, crispr.iloc[:train_size].copy())
+            test_crispr = cast(
+                pd.DataFrame,
+                crispr.iloc[train_size:train_size + test_size].copy(),
+            )
+        else:
+            test_crispr = cast(
+                pd.DataFrame,
+                crispr.sample(n=test_size, random_state=random_state),
+            )
+            test_ids = cast(list[str], test_crispr["ModelID"].tolist())
+            train_crispr = cast(
+                pd.DataFrame,
+                crispr.loc[~crispr["ModelID"].isin(test_ids)].sample(
+                    n=train_size,
+                    random_state=random_state,
+                ),
+            )
         test_ids = cast(list[str], test_crispr["ModelID"].tolist())
-        train_crispr = cast(
-            pd.DataFrame,
-            crispr.loc[~crispr["ModelID"].isin(test_ids)].sample(
-                n=train_size,
-                random_state=random_state,
-            ),
-        )
         train_ids = cast(list[str], train_crispr["ModelID"].tolist())
         gene_symbol = gene.split(" (", 1)[0]
         expression_column = next(

@@ -42,6 +42,36 @@ class DependencyGraph:
         builder.add_edge("judge", END)
         self.graph = builder.compile()
 
+    def analyst_prompts(self, state: GraphInput) -> dict[str, str]:
+        prompts = {
+            "donor": self.prompts.text(self.prompts.analyst(
+                role="donor",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_donor"],
+                test_table=state["test_donor"],
+            )),
+            "expression": self.prompts.text(self.prompts.analyst(
+                role="expression",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_expression"],
+                test_table=state["test_expression"],
+            )),
+        }
+        if state["test_has_mutation"]:
+            prompts["mutation"] = self.prompts.text(self.prompts.analyst(
+                role="mutation",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_mutation"],
+                test_table=state["test_mutation"],
+            ))
+        return prompts
+
     def donor(self, state: GraphState) -> DonorOutput:
         prompt = self.prompts.analyst(
             role="donor",

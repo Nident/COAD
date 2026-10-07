@@ -16,25 +16,25 @@ class Hypothesis(BaseModel):
 
 
 class DonorHypothesis(Hypothesis):
-    source: Literal["donor"]
+    source: Literal["donor"] = "donor"
     predicted_category: EffectCategory
     confidence: float = Field(ge=0.0, le=1.0)
 
 
 class ExpressionHypothesis(Hypothesis):
-    source: Literal["expression"]
+    source: Literal["expression"] = "expression"
     predicted_category: EffectCategory
     confidence: float = Field(ge=0.0, le=1.0)
 
 
 class MutationHypothesis(Hypothesis):
-    source: Literal["mutation"]
+    source: Literal["mutation"] = "mutation"
     predicted_category: EffectCategory
     confidence: float = Field(ge=0.0, le=1.0)
 
 
 class NoMutationHypothesis(Hypothesis):
-    source: Literal["mutation"]
+    source: Literal["mutation"] = "mutation"
     predicted_category: None
     confidence: float = Field(ge=0.0, le=0.0)
 

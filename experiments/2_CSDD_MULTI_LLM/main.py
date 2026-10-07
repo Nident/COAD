@@ -1,14 +1,19 @@
 import json
 import re
+import traceback
 from pathlib import Path
 from typing import cast
 
 import pandas as pd
+import tiktoken
 from pydantic import BaseModel
 
 from Data import DataPreparator, DataReader, GeneData
 from Graph import DependencyGraph
 from Schemas import CompletedGraphState, EffectCategory, GraphInput
+
+
+TOKEN_ENCODING = tiktoken.get_encoding("cl100k_base")
 
 
 def table_json(table: pd.DataFrame) -> str:
@@ -35,6 +40,46 @@ def save_json(path: Path, value: BaseModel | dict[str, object]) -> None:
         json.dumps(serializable, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def text_metrics(
+    text: str,
+    llm_invoked: bool | None = None,
+) -> dict[str, object]:
+    metrics: dict[str, object] = {
+        "bytes_utf8": len(text.encode("utf-8")),
+        "characters": len(text),
+        "lines": len(text.splitlines()),
+        "estimated_tokens": len(TOKEN_ENCODING.encode(text)),
+        "tokenizer": "cl100k_base",
+        "token_count_is_estimate": True,
+    }
+    if llm_invoked is not None:
+        metrics["llm_invoked"] = llm_invoked
+    return metrics
+
+
+def save_file_metrics(output_path: Path, files: list[Path]) -> None:
+    metrics: dict[str, object] = {
+        path.name: text_metrics(path.read_text(encoding="utf-8"))
+        for path in files
+    }
+    save_json(output_path, metrics)
+
+
+def save_prompt_bundle(
+    output_dir: Path,
+    prompts: dict[str, str],
+    mutation_llm_invoked: bool,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    metrics: dict[str, object] = {}
+    for role, prompt in prompts.items():
+        path = output_dir / f"{role}_prompt.md"
+        path.write_text(prompt, encoding="utf-8")
+        invoked = role != "mutation" or mutation_llm_invoked
+        metrics[role] = text_metrics(prompt, invoked)
+    save_json(output_dir / "prompt_metrics.json", metrics)
 
 
 def build_state(data: GeneData, test_model_id: str) -> GraphInput:
@@ -68,8 +113,13 @@ def save_prepared_data(
     output_dir.mkdir(parents=True, exist_ok=True)
     train_crispr = decoded_table(state["train_crispr"])
 
+    metadata_path = output_dir / "metadata.json"
+    donor_path = output_dir / "donor_agent_input.json"
+    expression_path = output_dir / "expression_agent_input.json"
+    mutation_path = output_dir / "mutation_agent_input.json"
+
     save_json(
-        output_dir / "metadata.json",
+        metadata_path,
         {
             "target_gene": state["gene"],
             "test_model_id": state["test_model_id"],
@@ -78,7 +128,7 @@ def save_prepared_data(
         },
     )
     save_json(
-        output_dir / "donor_agent_input.json",
+        donor_path,
         {
             "train_crispr": train_crispr,
             "train_donor": decoded_table(state["train_donor"]),
@@ -86,7 +136,7 @@ def save_prepared_data(
         },
     )
     save_json(
-        output_dir / "expression_agent_input.json",
+        expression_path,
         {
             "train_crispr": train_crispr,
             "train_expression": decoded_table(state["train_expression"]),
@@ -94,13 +144,17 @@ def save_prepared_data(
         },
     )
     save_json(
-        output_dir / "mutation_agent_input.json",
+        mutation_path,
         {
             "train_crispr": train_crispr,
             "train_mutation": decoded_table(state["train_mutation"]),
             "test_mutation": decoded_table(state["test_mutation"]),
             "test_has_mutation": state["test_has_mutation"],
         },
+    )
+    save_file_metrics(
+        output_dir / "json_metrics.json",
+        [metadata_path, donor_path, expression_path, mutation_path],
     )
 
 
@@ -142,6 +196,16 @@ def save_run(
     )
     save_json(run_dir / "mutation_hypothesis.json", state["mutation_hypothesis"])
     save_json(run_dir / "verdict.json", state["verdict"])
+    save_prompt_bundle(
+        run_dir,
+        {
+            "donor": state["donor_prompt"],
+            "expression": state["expression_prompt"],
+            "mutation": state["mutation_prompt"],
+            "judge": state["judge_prompt"],
+        },
+        state["test_has_mutation"],
+    )
     save_json(
         run_dir / "evaluation.json",
         {
@@ -167,6 +231,9 @@ def main() -> None:
     prepared_data_dir = (
         project_dir / "config" / reader.config["output"]["prepared_data"]
     ).resolve()
+    error_dir = (
+        project_dir / "config" / reader.config["output"]["errors"]
+    ).resolve()
 
     genes = preparator.genes(
         analysis["gene_start_index"],
@@ -178,6 +245,7 @@ def main() -> None:
             train_size=analysis["train_model_limit"],
             test_size=analysis["test_model_limit"],
             random_state=analysis["random_state"],
+            split_mode=analysis["split_mode"],
         )
         model_ids = cast(list[str], data.ground_truth["ModelID"].tolist())
         categories = cast(
@@ -193,6 +261,14 @@ def main() -> None:
                 f"{safe_name(gene)}_train_{train_count}_"
                 f"test_{safe_name(test_model_id)}"
             )
+            run_dir = output_dir / run_name
+            if (
+                analysis["resume_completed_runs"]
+                and (run_dir / "evaluation.json").exists()
+            ):
+                print(f"Skipped completed run: {run_dir}")
+                continue
+
             graph_input = build_state(data, test_model_id)
             prepared_run_dir = prepared_data_dir / run_name
             save_prepared_data(
@@ -201,10 +277,31 @@ def main() -> None:
                 related_genes,
                 analysis["relation_depth"],
             )
+            save_prompt_bundle(
+                prepared_run_dir / "prompts",
+                graph.analyst_prompts(graph_input),
+                graph_input["test_has_mutation"],
+            )
             print(prepared_run_dir)
 
-            state = graph.invoke(graph_input)
-            run_dir = output_dir / run_name
+            try:
+                state = graph.invoke(graph_input)
+            except Exception as error:
+                run_error_dir = error_dir / run_name
+                run_error_dir.mkdir(parents=True, exist_ok=True)
+                save_json(
+                    run_error_dir / "error.json",
+                    {
+                        "gene": gene,
+                        "test_model_id": test_model_id,
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                        "traceback": traceback.format_exc(),
+                        "prepared_data": str(prepared_run_dir),
+                    },
+                )
+                print(run_error_dir / "error.json")
+                raise
             save_run(run_dir, state, truth[test_model_id])
             print(run_dir)
 
