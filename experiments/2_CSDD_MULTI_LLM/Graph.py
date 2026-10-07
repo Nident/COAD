@@ -7,6 +7,8 @@ from LLM import LLMFactory
 from Prompts import Prompts
 from Schemas import (
     AnalystState,
+    CNVHypothesis,
+    CNVOutput,
     CompletedGraphState,
     DonorOutput,
     DonorHypothesis,
@@ -18,6 +20,7 @@ from Schemas import (
     JudgeOutput,
     MutationOutput,
     MutationHypothesis,
+    NoCNVHypothesis,
     NoMutationHypothesis,)
 
 
@@ -28,17 +31,20 @@ class DependencyGraph:
         self.donor_llm = factory.create("donor", DonorHypothesis)
         self.expression_llm = factory.create("expression", ExpressionHypothesis)
         self.mutation_llm = factory.create("mutation", MutationHypothesis)
+        self.cnv_llm = factory.create("cnv", CNVHypothesis)
         self.judge_llm = factory.create("judge", FinalVerdict)
 
         builder = StateGraph(GraphState)
         builder.add_node("donor", self.donor)
         builder.add_node("expression", self.expression)
         builder.add_node("mutation", self.mutation)
+        builder.add_node("cnv", self.cnv)
         builder.add_node("judge", self.judge)
         builder.add_edge(START, "donor")
         builder.add_edge(START, "expression")
         builder.add_edge(START, "mutation")
-        builder.add_edge(["donor", "expression", "mutation"], "judge")
+        builder.add_edge(START, "cnv")
+        builder.add_edge(["donor", "expression", "mutation", "cnv"], "judge")
         builder.add_edge("judge", END)
         self.graph = builder.compile()
 
@@ -69,6 +75,15 @@ class DependencyGraph:
                 train_crispr=state["train_crispr"],
                 train_table=state["train_mutation"],
                 test_table=state["test_mutation"],
+            ))
+        if state["test_has_cnv"]:
+            prompts["cnv"] = self.prompts.text(self.prompts.analyst(
+                role="cnv",
+                gene=state["gene"],
+                test_model_id=state["test_model_id"],
+                train_crispr=state["train_crispr"],
+                train_table=state["train_cnv"],
+                test_table=state["test_cnv"],
             ))
         return prompts
 
@@ -141,6 +156,44 @@ class DependencyGraph:
             "mutation_hypothesis": hypothesis,
         }
 
+    def cnv(self, state: GraphState) -> CNVOutput:
+        if not state["test_has_cnv"]:
+            message = (
+                "No CNV measurements for the target gene or its related genes "
+                "were supplied for this cell model."
+            )
+            return {
+                "cnv_prompt": message,
+                "cnv_hypothesis": NoCNVHypothesis(
+                    hypothesis=message,
+                    reasoning=[
+                        "The supplied CNV table has no row for the held-out "
+                        "ModelID."
+                    ],
+                    predicted_category=None,
+                    confidence=0.0,
+                    evidence_model_ids=[],
+                    limitations=[
+                        "Missing CNV data cannot be interpreted as a neutral "
+                        "copy-number state."
+                    ],
+                ),
+            }
+
+        prompt = self.prompts.analyst(
+            role="cnv",
+            gene=state["gene"],
+            test_model_id=state["test_model_id"],
+            train_crispr=state["train_crispr"],
+            train_table=state["train_cnv"],
+            test_table=state["test_cnv"],
+        )
+        hypothesis = cast(CNVHypothesis, self.cnv_llm.invoke(prompt))
+        return {
+            "cnv_prompt": self.prompts.text(prompt),
+            "cnv_hypothesis": hypothesis,
+        }
+
     def judge(self, state: GraphState) -> JudgeOutput:
         analyst_state = cast(AnalystState, state)
         prompt = self.prompts.judge(
@@ -149,6 +202,7 @@ class DependencyGraph:
             donor=analyst_state["donor_hypothesis"],
             expression=analyst_state["expression_hypothesis"],
             mutation=analyst_state["mutation_hypothesis"],
+            cnv=analyst_state["cnv_hypothesis"],
         )
         verdict = cast(FinalVerdict, self.judge_llm.invoke(prompt))
         return {

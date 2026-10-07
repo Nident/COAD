@@ -14,10 +14,12 @@ class GeneData:
     train_donor: pd.DataFrame
     train_expression: pd.DataFrame
     train_mutation: pd.DataFrame
+    train_cnv: pd.DataFrame
     test_ids: list[str]
     test_donor: pd.DataFrame
     test_expression: pd.DataFrame
     test_mutation: pd.DataFrame
+    test_cnv: pd.DataFrame
     ground_truth: pd.DataFrame
 
 
@@ -48,6 +50,10 @@ class DataReader:
             ),
             "mutation": pd.read_csv(
                 self._data_file("mutations"),
+                low_memory=False,
+            ),
+            "cnv": pd.read_csv(
+                self._data_file("cnv"),
                 low_memory=False,
             ),
         }
@@ -112,6 +118,14 @@ class DataPreparator:
                 pd.DataFrame,
                 data["mutation"].loc[
                     data["mutation"]["ModelID"].isin(model_ids)
+                ].copy(),
+            )
+        )
+        self.cnv = self._default_rows(
+            cast(
+                pd.DataFrame,
+                data["cnv"].loc[
+                    data["cnv"]["ModelID"].isin(model_ids)
                 ].copy(),
             )
         )
@@ -212,6 +226,12 @@ class DataPreparator:
                 :, ["ModelID", *expression_columns]
             ].drop_duplicates(subset=["ModelID"]),
         )
+        cnv = cast(
+            pd.DataFrame,
+            self.cnv.loc[
+                :, ["ModelID", *expression_columns]
+            ].drop_duplicates(subset=["ModelID"]),
+        )
         donor = cast(
             pd.DataFrame,
             self.donor.loc[:, self.DONOR_COLUMNS].drop_duplicates(
@@ -239,9 +259,11 @@ class DataPreparator:
             train_donor=self._model_rows(donor, train_ids),
             train_expression=self._model_rows(expression, train_ids),
             train_mutation=self._model_rows(mutation, train_ids),
+            train_cnv=self._model_rows(cnv, train_ids),
             test_ids=test_ids,
             test_donor=self._model_rows(donor, test_ids),
             test_expression=self._model_rows(expression, test_ids),
             test_mutation=self._model_rows(mutation, test_ids),
+            test_cnv=self._model_rows(cnv, test_ids),
             ground_truth=test_crispr.reset_index(drop=True),
         )

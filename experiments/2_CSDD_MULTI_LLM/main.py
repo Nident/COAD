@@ -70,20 +70,21 @@ def save_file_metrics(output_path: Path, files: list[Path]) -> None:
 def save_prompt_bundle(
     output_dir: Path,
     prompts: dict[str, str],
-    mutation_llm_invoked: bool,
+    llm_invoked: dict[str, bool],
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics: dict[str, object] = {}
     for role, prompt in prompts.items():
         path = output_dir / f"{role}_prompt.md"
         path.write_text(prompt, encoding="utf-8")
-        invoked = role != "mutation" or mutation_llm_invoked
+        invoked = llm_invoked.get(role, True)
         metrics[role] = text_metrics(prompt, invoked)
     save_json(output_dir / "prompt_metrics.json", metrics)
 
 
 def build_state(data: GeneData, test_model_id: str) -> GraphInput:
     test_mutation = model_rows(data.test_mutation, test_model_id)
+    test_cnv = model_rows(data.test_cnv, test_model_id)
     return {
         "gene": data.gene,
         "test_model_id": test_model_id,
@@ -97,6 +98,9 @@ def build_state(data: GeneData, test_model_id: str) -> GraphInput:
         ),
         "test_mutation": table_json(test_mutation),
         "test_has_mutation": not test_mutation.empty,
+        "train_cnv": table_json(data.train_cnv),
+        "test_cnv": table_json(test_cnv),
+        "test_has_cnv": not test_cnv.empty,
     }
 
 
@@ -117,6 +121,7 @@ def save_prepared_data(
     donor_path = output_dir / "donor_agent_input.json"
     expression_path = output_dir / "expression_agent_input.json"
     mutation_path = output_dir / "mutation_agent_input.json"
+    cnv_path = output_dir / "cnv_agent_input.json"
 
     save_json(
         metadata_path,
@@ -152,9 +157,18 @@ def save_prepared_data(
             "test_has_mutation": state["test_has_mutation"],
         },
     )
+    save_json(
+        cnv_path,
+        {
+            "train_crispr": train_crispr,
+            "train_cnv": decoded_table(state["train_cnv"]),
+            "test_cnv": decoded_table(state["test_cnv"]),
+            "test_has_cnv": state["test_has_cnv"],
+        },
+    )
     save_file_metrics(
         output_dir / "json_metrics.json",
-        [metadata_path, donor_path, expression_path, mutation_path],
+        [metadata_path, donor_path, expression_path, mutation_path, cnv_path],
     )
 
 
@@ -175,6 +189,9 @@ def save_run(
         "test_expression": json.loads(state["test_expression"]),
         "test_mutation": json.loads(state["test_mutation"]),
         "test_has_mutation": state["test_has_mutation"],
+        "train_cnv": json.loads(state["train_cnv"]),
+        "test_cnv": json.loads(state["test_cnv"]),
+        "test_has_cnv": state["test_has_cnv"],
     }
     save_json(run_dir / "inputs.json", inputs)
     (run_dir / "donor_prompt.md").write_text(
@@ -189,12 +206,16 @@ def save_run(
     (run_dir / "judge_prompt.md").write_text(
         state["judge_prompt"], encoding="utf-8"
     )
+    (run_dir / "cnv_prompt.md").write_text(
+        state["cnv_prompt"], encoding="utf-8"
+    )
     save_json(run_dir / "donor_hypothesis.json", state["donor_hypothesis"])
     save_json(
         run_dir / "expression_hypothesis.json",
         state["expression_hypothesis"],
     )
     save_json(run_dir / "mutation_hypothesis.json", state["mutation_hypothesis"])
+    save_json(run_dir / "cnv_hypothesis.json", state["cnv_hypothesis"])
     save_json(run_dir / "verdict.json", state["verdict"])
     save_prompt_bundle(
         run_dir,
@@ -202,9 +223,13 @@ def save_run(
             "donor": state["donor_prompt"],
             "expression": state["expression_prompt"],
             "mutation": state["mutation_prompt"],
+            "cnv": state["cnv_prompt"],
             "judge": state["judge_prompt"],
         },
-        state["test_has_mutation"],
+        {
+            "mutation": state["test_has_mutation"],
+            "cnv": state["test_has_cnv"],
+        },
     )
     save_json(
         run_dir / "evaluation.json",
@@ -227,7 +252,9 @@ def main() -> None:
     )
     analysis = reader.config["analysis"]
     graph = DependencyGraph(project_dir / "config")
-    output_dir = project_dir / "runs"
+    output_dir = (
+        project_dir / "config" / reader.config["output"]["runs"]
+    ).resolve()
     prepared_data_dir = (
         project_dir / "config" / reader.config["output"]["prepared_data"]
     ).resolve()
@@ -280,7 +307,10 @@ def main() -> None:
             save_prompt_bundle(
                 prepared_run_dir / "prompts",
                 graph.analyst_prompts(graph_input),
-                graph_input["test_has_mutation"],
+                {
+                    "mutation": graph_input["test_has_mutation"],
+                    "cnv": graph_input["test_has_cnv"],
+                },
             )
             print(prepared_run_dir)
 

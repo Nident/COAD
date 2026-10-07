@@ -6,6 +6,8 @@ from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate
 
 from Schemas import (
+    CNVHypothesis,
+    CNVResult,
     DonorHypothesis,
     ExpressionHypothesis,
     FinalVerdict,
@@ -19,6 +21,7 @@ class Prompts:
         "donor": DonorHypothesis,
         "expression": ExpressionHypothesis,
         "mutation": MutationHypothesis,
+        "cnv": CNVHypothesis,
     }
 
     def __init__(self, config_path: Path):
@@ -74,6 +77,7 @@ class Prompts:
         donor: DonorHypothesis,
         expression: ExpressionHypothesis,
         mutation: MutationResult,
+        cnv: CNVResult,
     ) -> PromptValue:
         example = {
             "gene": gene,
@@ -95,6 +99,7 @@ class Prompts:
             "donor_hypothesis": donor.model_dump_json(indent=2),
             "expression_hypothesis": expression.model_dump_json(indent=2),
             "mutation_hypothesis": mutation.model_dump_json(indent=2),
+            "cnv_hypothesis": cnv.model_dump_json(indent=2),
             "response_schema": json.dumps(
                 FinalVerdict.model_json_schema(),
                 ensure_ascii=False,

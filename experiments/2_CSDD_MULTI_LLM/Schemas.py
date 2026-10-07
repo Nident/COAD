@@ -33,6 +33,12 @@ class MutationHypothesis(Hypothesis):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class CNVHypothesis(Hypothesis):
+    source: Literal["cnv"] = "cnv"
+    predicted_category: EffectCategory
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class NoMutationHypothesis(Hypothesis):
     source: Literal["mutation"] = "mutation"
     predicted_category: None
@@ -40,6 +46,15 @@ class NoMutationHypothesis(Hypothesis):
 
 
 MutationResult = MutationHypothesis | NoMutationHypothesis
+
+
+class NoCNVHypothesis(Hypothesis):
+    source: Literal["cnv"] = "cnv"
+    predicted_category: None
+    confidence: float = Field(ge=0.0, le=0.0)
+
+
+CNVResult = CNVHypothesis | NoCNVHypothesis
 
 
 class FinalVerdict(BaseModel):
@@ -66,6 +81,9 @@ class GraphInput(TypedDict):
     test_expression: str
     test_mutation: str
     test_has_mutation: bool
+    train_cnv: str
+    test_cnv: str
+    test_has_cnv: bool
 
 
 class GraphState(GraphInput):
@@ -76,6 +94,8 @@ class GraphState(GraphInput):
     donor_hypothesis: NotRequired[DonorHypothesis]
     expression_hypothesis: NotRequired[ExpressionHypothesis]
     mutation_hypothesis: NotRequired[MutationResult]
+    cnv_prompt: NotRequired[str]
+    cnv_hypothesis: NotRequired[CNVResult]
     verdict: NotRequired[FinalVerdict]
 
 
@@ -86,6 +106,8 @@ class AnalystState(GraphInput):
     donor_hypothesis: DonorHypothesis
     expression_hypothesis: ExpressionHypothesis
     mutation_hypothesis: MutationResult
+    cnv_prompt: str
+    cnv_hypothesis: CNVResult
 
 
 class CompletedGraphState(AnalystState):
@@ -106,6 +128,11 @@ class ExpressionOutput(TypedDict):
 class MutationOutput(TypedDict):
     mutation_prompt: str
     mutation_hypothesis: MutationResult
+
+
+class CNVOutput(TypedDict):
+    cnv_prompt: str
+    cnv_hypothesis: CNVResult
 
 
 class JudgeOutput(TypedDict):

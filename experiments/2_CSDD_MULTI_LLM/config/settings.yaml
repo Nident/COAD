@@ -4,11 +4,13 @@ data:
   donor: Model.csv
   expression: OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv
   mutations: OmicsSomaticMutations.csv
+  cnv: OmicsCNGeneWGS.csv
   related_genes: ../../../data/static_gene_selection/target_related_genes.jsonl
 
 output:
-  prepared_data: ../prepared_data
-  errors: ../errors
+  runs: ../runs_cnv
+  prepared_data: ../prepared_data_cnv
+  errors: ../errors_cnv
 
 analysis:
   gene_start_index: 0

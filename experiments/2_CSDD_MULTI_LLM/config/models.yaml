@@ -21,6 +21,10 @@ models:
     name: deepseek-flash
     base_url: https://api.deepseek.com
     api_key: deepseek
+  cnv:
+    name: deepseek-flash
+    base_url: https://api.deepseek.com
+    api_key: deepseek
   judge:
     name: deepseek-flash
     base_url: https://api.deepseek.com

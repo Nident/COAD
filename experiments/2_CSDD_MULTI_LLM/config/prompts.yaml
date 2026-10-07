@@ -80,6 +80,32 @@ mutation: |-
   Example JSON structure:
   {response_example}
 
+cnv: |-
+  Target gene: {gene}
+  Held-out ModelID: {test_model_id}
+
+  Known training CRISPR categories:
+  {train_crispr}
+
+  Training copy-number values for the target gene and its recursively selected
+  related genes:
+  {train_table}
+
+  Held-out copy-number row with the same gene columns:
+  {test_table}
+
+  Form one hypothesis about whether copy-number gains, losses, and recurring CNV
+  patterns predict the target gene's CRISPR effect in the held-out model. Compare
+  patterns across no_effect, weak_effect, and strong_effect training models. Treat
+  association as predictive evidence, not proof of causality. End with one predicted
+  category: no_effect, weak_effect, or strong_effect.
+
+  Required JSON Schema:
+  {response_schema}
+
+  Example JSON structure:
+  {response_example}
+
 judge: |-
   Target gene: {gene}
   Held-out ModelID: {test_model_id}
@@ -93,7 +119,10 @@ judge: |-
   Mutation analyst hypothesis:
   {mutation_hypothesis}
 
-  Compare the three hypotheses and their reasoning. Identify agreements, conflicts,
+  CNV analyst hypothesis:
+  {cnv_hypothesis}
+
+  Compare the four hypotheses and their reasoning. Identify agreements, conflicts,
   evidence quality, and missing evidence. Give more weight to repeated training patterns
   than to isolated examples or unsupported biological claims. Return one final category
   for the held-out ModelID: no_effect, weak_effect, or strong_effect. A null mutation
