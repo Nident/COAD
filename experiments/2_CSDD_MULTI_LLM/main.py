@@ -55,6 +55,55 @@ def build_state(data: GeneData, test_model_id: str) -> GraphInput:
     }
 
 
+def decoded_table(value: str) -> dict[str, object]:
+    return cast(dict[str, object], json.loads(value))
+
+
+def save_prepared_data(
+    output_dir: Path,
+    state: GraphInput,
+    related_genes: list[str],
+    relation_depth: int,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    train_crispr = decoded_table(state["train_crispr"])
+
+    save_json(
+        output_dir / "metadata.json",
+        {
+            "target_gene": state["gene"],
+            "test_model_id": state["test_model_id"],
+            "relation_depth": relation_depth,
+            "related_genes": related_genes,
+        },
+    )
+    save_json(
+        output_dir / "donor_agent_input.json",
+        {
+            "train_crispr": train_crispr,
+            "train_donor": decoded_table(state["train_donor"]),
+            "test_donor": decoded_table(state["test_donor"]),
+        },
+    )
+    save_json(
+        output_dir / "expression_agent_input.json",
+        {
+            "train_crispr": train_crispr,
+            "train_expression": decoded_table(state["train_expression"]),
+            "test_expression": decoded_table(state["test_expression"]),
+        },
+    )
+    save_json(
+        output_dir / "mutation_agent_input.json",
+        {
+            "train_crispr": train_crispr,
+            "train_mutation": decoded_table(state["train_mutation"]),
+            "test_mutation": decoded_table(state["test_mutation"]),
+            "test_has_mutation": state["test_has_mutation"],
+        },
+    )
+
+
 def save_run(
     run_dir: Path,
     state: CompletedGraphState,
@@ -110,10 +159,14 @@ def main() -> None:
     preparator = DataPreparator(
         reader.read(),
         reader.read_gene_relations(),
+        reader.config["analysis"]["relation_depth"],
     )
     analysis = reader.config["analysis"]
     graph = DependencyGraph(project_dir / "config")
     output_dir = project_dir / "runs"
+    prepared_data_dir = (
+        project_dir / "config" / reader.config["output"]["prepared_data"]
+    ).resolve()
 
     genes = preparator.genes(
         analysis["gene_start_index"],
@@ -133,13 +186,24 @@ def main() -> None:
         )
         truth = dict(zip(model_ids, categories, strict=True))
         train_count = len(data.train_crispr)
+        related_genes = preparator.related_genes(gene)
 
         for test_model_id in data.test_ids:
-            state = graph.invoke(build_state(data, test_model_id))
             run_name = (
                 f"{safe_name(gene)}_train_{train_count}_"
                 f"test_{safe_name(test_model_id)}"
             )
+            graph_input = build_state(data, test_model_id)
+            prepared_run_dir = prepared_data_dir / run_name
+            save_prepared_data(
+                prepared_run_dir,
+                graph_input,
+                related_genes,
+                analysis["relation_depth"],
+            )
+            print(prepared_run_dir)
+
+            state = graph.invoke(graph_input)
             run_dir = output_dir / run_name
             save_run(run_dir, state, truth[test_model_id])
             print(run_dir)

@@ -4,7 +4,10 @@ data:
   donor: Model.csv
   expression: OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv
   mutations: OmicsSomaticMutations.csv
-  related_genes: ../outputs/static_gene_selection/target_related_genes.json
+  related_genes: ../../../data/static_gene_selection/target_related_genes.jsonl
+
+output:
+  prepared_data: ../prepared_data
 
 analysis:
   gene_start_index: 2
@@ -12,3 +15,4 @@ analysis:
   train_model_limit: 2
   test_model_limit: 1
   random_state: 42
+  relation_depth: 1

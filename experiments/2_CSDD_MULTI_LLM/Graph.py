@@ -18,8 +18,7 @@ from Schemas import (
     JudgeOutput,
     MutationOutput,
     MutationHypothesis,
-    NoMutationHypothesis,
-)
+    NoMutationHypothesis,)
 
 
 class DependencyGraph:
@@ -76,8 +75,8 @@ class DependencyGraph:
     def mutation(self, state: GraphState) -> MutationOutput:
         if not state["test_has_mutation"]:
             message = (
-                "No mutations in the target gene were detected for this cell "
-                "model in the supplied data."
+                "No mutations in the target gene or its related genes were "
+                "detected for this cell model in the supplied data."
             )
             return {
                 "mutation_prompt": message,
@@ -86,7 +85,7 @@ class DependencyGraph:
                     hypothesis=message,
                     reasoning=[
                         "The supplied mutation table has no rows for the target "
-                        "gene and held-out ModelID."
+                        "or related genes and held-out ModelID."
                     ],
                     predicted_category=None,
                     confidence=0.0,

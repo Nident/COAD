@@ -1,6 +1,6 @@
+import json
 from dataclasses import dataclass
 from pathlib import Path
-import json
 from typing import Any, cast
 
 import pandas as pd
@@ -27,32 +27,37 @@ class DataReader:
         self.config: dict[str, Any] = yaml.safe_load(
             config_path.read_text(encoding="utf-8")
         )
+        self.data_config: dict[str, str] = self.config["data"]
+        self.data_path = (
+            config_path.parent / self.data_config["data_path"]
+        ).resolve()
+
+    def _data_file(self, name: str) -> Path:
+        return self.data_path / self.data_config[name]
+
+    def _config_file(self, name: str) -> Path:
+        return (self.config_path.parent / self.data_config[name]).resolve()
 
     def read(self) -> dict[str, pd.DataFrame]:
-        data = self.config["data"]
-        data_path = (self.config_path.parent / data["data_path"]).resolve()
         return {
-            "crispr": pd.read_csv(data_path / data["crispr"], low_memory=False),
-            "donor": pd.read_csv(data_path / data["donor"], low_memory=False),
+            "crispr": pd.read_csv(self._data_file("crispr"), low_memory=False),
+            "donor": pd.read_csv(self._data_file("donor"), low_memory=False),
             "expression": pd.read_csv(
-                data_path / data["expression"],
+                self._data_file("expression"),
                 low_memory=False,
             ),
             "mutation": pd.read_csv(
-                data_path / data["mutations"],
+                self._data_file("mutations"),
                 low_memory=False,
             ),
         }
 
     def read_gene_relations(self) -> dict[str, list[str]]:
-        path = (
-            self.config_path.parent
-            / self.config["data"]["related_genes"]
-        ).resolve()
-        return cast(
-            dict[str, list[str]],
-            json.loads(path.read_text(encoding="utf-8")),
-        )
+        relations: dict[str, list[str]] = {}
+        with self._config_file("related_genes").open(encoding="utf-8") as file:
+            for line in file:
+                relations.update(cast(dict[str, list[str]], json.loads(line)))
+        return relations
 
 
 class DataPreparator:
@@ -82,8 +87,10 @@ class DataPreparator:
         self,
         data: dict[str, pd.DataFrame],
         gene_relations: dict[str, list[str]],
+        relation_depth: int,
     ):
         self.gene_relations = gene_relations
+        self.relation_depth = relation_depth
         self.crispr = data["crispr"].rename(columns={"Unnamed: 0": "ModelID"})
         model_ids = self.crispr["ModelID"]
         self.donor = cast(
@@ -130,6 +137,24 @@ class DataPreparator:
             self.crispr.columns.drop("ModelID")[start:end].tolist(),
         )
 
+    def related_genes(self, target_gene: str) -> list[str]:
+        visited = {target_gene}
+        result: list[str] = []
+
+        def collect(gene: str, depth: int) -> None:
+            if depth == 0:
+                return
+
+            for related_gene in self.gene_relations.get(gene, []):
+                if related_gene in visited:
+                    continue
+                visited.add(related_gene)
+                result.append(related_gene)
+                collect(related_gene, depth - 1)
+
+        collect(target_gene, self.relation_depth)
+        return result
+
     def prepare(
         self,
         gene: str,
@@ -163,7 +188,7 @@ class DataPreparator:
             for column in self.expression.columns
             if column == gene or column.startswith(f"{gene_symbol} (")
         )
-        related_genes = self.gene_relations[gene]
+        related_genes = self.related_genes(gene)
         expression_columns = [
             expression_column,
             *[
@@ -184,11 +209,17 @@ class DataPreparator:
                 subset=["ModelID"]
             ),
         )
+        mutation_symbols = {
+            column.split(" (", 1)[0].upper()
+            for column in [gene, *related_genes]
+        }
         mutation = cast(
             pd.DataFrame,
             self.mutation.loc[
-                self.mutation["HugoSymbol"].astype(str).str.upper()
-                == gene_symbol.upper(),
+                self.mutation["HugoSymbol"]
+                .astype(str)
+                .str.upper()
+                .isin(mutation_symbols),
                 self.MUTATION_COLUMNS,
             ].copy(),
         )

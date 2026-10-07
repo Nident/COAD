@@ -13,3 +13,4 @@ errors/
 test.ipynb
 **/config/secrets.yaml
 experiments/2_CSDD_MULTI_LLM/runs/
+experiments/2_CSDD_MULTI_LLM/prepared_data/
