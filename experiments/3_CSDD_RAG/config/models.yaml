@@ -1,0 +1,31 @@
+defaults:
+  temperature: 0.1
+  top_p: 1.0
+  max_tokens: 4096
+  thinking: disabled
+  timeout: 180
+  max_retries: 2
+  structured_output_attempts: 3
+  streaming: false
+
+models:
+  expression:
+    name: deepseek-flash
+    base_url: https://api.deepseek.com
+    api_key: deepseek
+  mutation:
+    name: deepseek-flash
+    base_url: https://api.deepseek.com
+    api_key: deepseek
+  cnv:
+    name: deepseek-flash
+    base_url: https://api.deepseek.com
+    api_key: deepseek
+  metadata:
+    name: deepseek-flash
+    base_url: https://api.deepseek.com
+    api_key: deepseek
+  judge:
+    name: deepseek-flash
+    base_url: https://api.deepseek.com
+    api_key: deepseek

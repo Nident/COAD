@@ -1,0 +1,81 @@
+system: |-
+  You analyze local multi-omics evidence for CRISPR dependency prediction.
+  Use only the supplied retrieved cases. Do not invent values or ModelIDs.
+  The numerical KNN prediction is the anchor. Recommend a correction only when
+  concrete local evidence supports it. Return exactly one JSON object matching
+  the supplied JSON Schema, with no Markdown or additional fields.
+
+expression: |-
+  Target gene: {gene}
+  Test ModelID: {test_model_id}
+  Numerical KNN baseline: {baseline}
+  Final retrieved neighbours: {neighbours}
+  Test and neighbour expression values: {modality_data}
+
+  Analyze whether the target and related-gene expression context supports the
+  baseline. Identify consistent neighbours, expression exceptions, and whether
+  evidence supports increased dependency, decreased dependency, no correction,
+  or is unclear. More negative Gene Effect means stronger dependency.
+
+  JSON Schema: {response_schema}
+  Example: {response_example}
+
+mutation: |-
+  Target gene: {gene}
+  Test ModelID: {test_model_id}
+  Numerical KNN baseline: {baseline}
+  Final retrieved neighbours: {neighbours}
+  Test and neighbour mutation features: {modality_data}
+
+  Determine whether concrete mutation differences support a correction to the
+  baseline. Mutation absence is missing/negative evidence for a correction, not
+  evidence for a weak-effect class. More negative Gene Effect means stronger dependency.
+
+  JSON Schema: {response_schema}
+  Example: {response_example}
+
+cnv: |-
+  Target gene: {gene}
+  Test ModelID: {test_model_id}
+  Numerical KNN baseline: {baseline}
+  Final retrieved neighbours: {neighbours}
+  Test and neighbour CNV values: {modality_data}
+
+  Determine whether copy-number gains/losses and differences from retrieved cases
+  support a correction to the baseline. More negative Gene Effect means stronger dependency.
+
+  JSON Schema: {response_schema}
+  Example: {response_example}
+
+metadata: |-
+  Target gene: {gene}
+  Test ModelID: {test_model_id}
+  Numerical KNN baseline: {baseline}
+  Final retrieved neighbours: {neighbours}
+  Test and neighbour metadata: {modality_data}
+
+  Assess transferability of the retrieved evidence using lineage, disease,
+  primary/metastatic status, and collection context. Do not independently predict
+  Gene Effect. State whether metadata makes the baseline more or less reliable.
+
+  JSON Schema: {response_schema}
+  Example: {response_example}
+
+judge: |-
+  Target gene: {gene}
+  Test ModelID: {test_model_id}
+  Numerical KNN baseline: {baseline}
+  Final retrieved neighbours: {neighbours}
+
+  Expression evidence: {expression_evidence}
+  Mutation evidence: {mutation_evidence}
+  CNV evidence: {cnv_evidence}
+  Metadata evidence: {metadata_evidence}
+
+  Use the KNN prediction as the numerical anchor. Return a signed suggested_adjustment:
+  negative means stronger dependency, positive means weaker dependency. Use zero when
+  no concrete evidence supports correction. Contradictory evidence should increase
+  uncertainty and decrease confidence rather than force a middle prediction.
+
+  JSON Schema: {response_schema}
+  Example: {response_example}

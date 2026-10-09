@@ -1,0 +1,48 @@
+data:
+  data_path: ../../../data
+  crispr: CRISPRGeneEffect.csv
+  expression: OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv
+  mutations: OmicsSomaticMutations.csv
+  cnv: OmicsCNGeneWGS.csv
+  metadata: Model.csv
+  related_genes: static_gene_selection/target_related_genes.jsonl
+
+input:
+  target_gene: ACO2
+  test_model_id: ACH-000475
+
+retrieval:
+  expression_metric: cosine
+  expression_candidates: 30
+  top_k: 10
+  mutation_min_recurrence: 5
+  metadata_columns:
+    - OncotreeLineage
+    - OncotreePrimaryDisease
+    - OncotreeSubtype
+    - PrimaryOrMetastasis
+    - SampleCollectionSite
+  weights:
+    expression: 0.60
+    mutation: 0.20
+    cnv: 0.15
+    metadata: 0.05
+  consistency_std:
+    high: 0.15
+    medium: 0.35
+  use_mutation_rerank: true
+  use_cnv_rerank: true
+  use_metadata_rerank: true
+
+prediction:
+  use_llm: true
+  max_absolute_llm_adjustment: 0.30
+  thresholds:
+    strong_effect: -1.0
+    weak_effect: -0.5
+
+experiments:
+  run_ablations: true
+
+output:
+  runs: ../runs

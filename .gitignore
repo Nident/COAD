@@ -19,3 +19,6 @@ experiments/2_CSDD_MULTI_LLM/errors/
 experiments/2_CSDD_MULTI_LLM/runs_cnv/
 experiments/2_CSDD_MULTI_LLM/prepared_data_cnv/
 experiments/2_CSDD_MULTI_LLM/errors_cnv/
+experiments/3_CSDD_RAG/runs/
+experiments/3_CSDD_RAG/batch_results/
+!experiments/3_CSDD_RAG/README.md
