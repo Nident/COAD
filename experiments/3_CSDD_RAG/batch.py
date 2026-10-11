@@ -25,6 +25,81 @@ def correlation(left: np.ndarray, right: np.ndarray) -> float | None:
     return value if np.isfinite(value) else None
 
 
+def classification_metrics(
+    actual: np.ndarray,
+    predicted: np.ndarray,
+) -> dict[str, object]:
+    classes = sorted(set(actual.astype(str)) | set(predicted.astype(str)))
+    per_class: dict[str, dict[str, float | int]] = {}
+    total = len(actual)
+    for category in classes:
+        actual_positive = actual == category
+        predicted_positive = predicted == category
+        tp = int(np.sum(actual_positive & predicted_positive))
+        fp = int(np.sum(~actual_positive & predicted_positive))
+        tn = int(np.sum(~actual_positive & ~predicted_positive))
+        fn = int(np.sum(actual_positive & ~predicted_positive))
+        precision = tp / (tp + fp) if tp + fp else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
+        f1 = (
+            2.0 * precision * recall / (precision + recall)
+            if precision + recall
+            else 0.0
+        )
+        per_class[category] = {
+            "TP": tp,
+            "FP": fp,
+            "TN": tn,
+            "FN": fn,
+            "accuracy": (tp + tn) / total,
+            "precision": precision,
+            "recall": recall,
+            "F1": f1,
+            "support": tp + fn,
+        }
+
+    supports = np.array([
+        values["support"] for values in per_class.values()
+    ], dtype=float)
+    precisions = np.array([
+        values["precision"] for values in per_class.values()
+    ], dtype=float)
+    recalls = np.array([
+        values["recall"] for values in per_class.values()
+    ], dtype=float)
+    f1_scores = np.array([
+        values["F1"] for values in per_class.values()
+    ], dtype=float)
+    tp_total = sum(int(values["TP"]) for values in per_class.values())
+    fp_total = sum(int(values["FP"]) for values in per_class.values())
+    fn_total = sum(int(values["FN"]) for values in per_class.values())
+    micro_precision = tp_total / (tp_total + fp_total)
+    micro_recall = tp_total / (tp_total + fn_total)
+    micro_f1 = (
+        2.0 * micro_precision * micro_recall
+        / (micro_precision + micro_recall)
+    )
+    return {
+        "accuracy": float(np.mean(actual == predicted)),
+        "per_class_one_vs_rest": per_class,
+        "macro": {
+            "precision": float(np.mean(precisions)),
+            "recall": float(np.mean(recalls)),
+            "F1": float(np.mean(f1_scores)),
+        },
+        "micro": {
+            "precision": micro_precision,
+            "recall": micro_recall,
+            "F1": micro_f1,
+        },
+        "weighted": {
+            "precision": float(np.average(precisions, weights=supports)),
+            "recall": float(np.average(recalls, weights=supports)),
+            "F1": float(np.average(f1_scores, weights=supports)),
+        },
+    }
+
+
 def metrics(table: pd.DataFrame) -> dict[str, object]:
     predicted = cast(
         np.ndarray,
@@ -56,6 +131,14 @@ def metrics(table: pd.DataFrame) -> dict[str, object]:
             table["PredictedCategory"] == table["ActualCategory"]
         ).to_numpy(dtype=bool),
     )
+    actual_categories = cast(
+        np.ndarray,
+        table["ActualCategory"].astype(str).to_numpy(),
+    )
+    predicted_categories = cast(
+        np.ndarray,
+        table["PredictedCategory"].astype(str).to_numpy(),
+    )
     absolute_error = np.abs(predicted - actual)
     baseline_absolute_error = np.abs(baseline - actual)
     predicted_ranks = pd.Series(predicted).rank().to_numpy(dtype=float)
@@ -73,6 +156,10 @@ def metrics(table: pd.DataFrame) -> dict[str, object]:
         "classification_accuracy": float(np.mean(categories_match)),
         "mean_confidence": float(np.mean(confidence)),
         "mean_uncertainty": float(np.mean(uncertainty)),
+        "classification_metrics": classification_metrics(
+            actual_categories,
+            predicted_categories,
+        ),
         "KNNBaseline": {
             "MAE": float(np.mean(baseline_absolute_error)),
             "RMSE": float(np.sqrt(np.mean(np.square(baseline - actual)))),
@@ -259,6 +346,20 @@ def main() -> None:
     (output_dir / "metrics.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
+    )
+    classification = cast(
+        dict[str, object],
+        summary["classification_metrics"],
+    )
+    per_class = cast(
+        dict[str, dict[str, float | int]],
+        classification["per_class_one_vs_rest"],
+    )
+    pd.DataFrame.from_dict(per_class, orient="index").rename_axis(
+        "category"
+    ).reset_index().to_csv(
+        output_dir / "classification_metrics.csv",
+        index=False,
     )
     if use_llm:
         diagnostics = agent_diagnostics(

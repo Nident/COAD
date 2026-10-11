@@ -66,7 +66,9 @@ python3 batch.py
 
 Change `target_gene`, `test_model_ids`, `use_llm`, and `run_ablations` in
 `config/batch_settings.yaml`. A separate `predictions.csv` and `metrics.json`
-are written for exactly the ModelIDs listed in that file.
+are written for exactly the ModelIDs listed in that file. Per-category TP, FP,
+TN, FN, accuracy, precision, recall, and F1 are also saved to
+`classification_metrics.csv`.
 
 ## Configuration
 
