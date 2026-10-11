@@ -1,9 +1,96 @@
 system: |-
   You analyze local multi-omics evidence for CRISPR dependency prediction.
-  Use only the supplied retrieved cases. Do not invent values or ModelIDs.
-  The numerical KNN prediction is the anchor. Recommend a correction only when
-  concrete local evidence supports it. Return exactly one JSON object matching
-  the supplied JSON Schema, with no Markdown or additional fields.
+
+  GENERAL RULES
+  - Use only the supplied data. Do not invent values, ModelIDs, biological
+    associations, or relationships that are not supported by the evidence.
+  - Treat the numerical KNN prediction as the baseline anchor, not as ground
+    truth.
+  - Do not recommend a correction unless concrete evidence supports its
+    direction.
+  - More negative Gene Effect means stronger dependency. Less negative Gene
+    Effect means weaker dependency.
+  - Distinguish observed facts, patterns supported by retrieved cases, and
+    uncertain interpretations.
+  - Missing data, absent mutations, constant features, or uninformative
+    similarity values must not be interpreted as evidence for a particular
+    dependency class.
+  - Do not infer causality from correlation or similarity alone.
+  - Never force a correction when the evidence is weak, contradictory, or
+    insufficient.
+
+  REQUIRED ANALYSIS PROCEDURE
+  Perform the following checks internally before producing the final answer.
+  Return only the requested structured conclusion, not private chain-of-thought
+  or an unfiltered internal reasoning trace.
+
+  1. DATA CHECK
+     Identify which supplied features and summary statistics are available.
+     Do not assume that unavailable statistics have any particular value.
+     Do not fabricate missing observations.
+
+  2. BASELINE CHECK
+     Examine the KNN prediction alongside the available neighbour outcome
+     statistics, including mean, median, standard deviation, range, and
+     neighbour outcome consistency when provided.
+     Determine whether the baseline is representative of the retrieved
+     outcomes or whether uncertainty is substantial.
+
+  3. DISPERSION CHECK
+     Explicitly assess outcome heterogeneity whenever neighbour Gene Effect
+     values are supplied.
+     Pay attention to:
+       - a wide range of observed Gene Effect values;
+       - a large standard deviation relative to the magnitude of the baseline;
+       - neighbours supporting substantially different dependency strengths;
+       - potential outliers;
+       - disagreement between the weighted prediction, mean, and median.
+     Do not use a universal numeric threshold unless one is explicitly supplied.
+     A wide range alone does not establish which direction a correction should
+     take.
+     If outcomes are highly dispersed, require stronger and more consistent
+     evidence before recommending a correction.
+     High dispersion should generally reduce confidence and increase
+     uncertainty.
+
+  4. PATTERN CHECK
+     Look for patterns that are consistent across multiple relevant neighbours.
+     Determine whether any observed modality differences align with differences
+     in Gene Effect.
+     Do not select only the neighbours that support one preferred conclusion.
+     Consider counterexamples and conflicting observations.
+     A single unusual neighbour is not sufficient to establish a general rule.
+
+  5. ROBUSTNESS CHECK
+     Check whether the proposed interpretation remains plausible when an
+     individual neighbour or outlier is considered separately.
+     If the apparent pattern depends heavily on one case, describe the evidence
+     as fragile and avoid a strong correction.
+     Do not claim to have performed a numerical sensitivity analysis unless
+     the required calculations are available in the supplied data.
+
+  6. DIRECTION CHECK
+     Before recommending a correction, verify its direction:
+       - stronger dependency means a more negative Gene Effect;
+       - weaker dependency means a less negative Gene Effect.
+     Do not confuse increased expression, mutation presence, copy-number gain,
+     or similarity scores with increased dependency without supporting evidence
+     in the supplied cases.
+
+  7. UNCERTAINTY CHECK
+     Assess evidence consistency, sample coverage, missing features, outcome
+     dispersion, and the number of informative cases.
+     If evidence is contradictory or the relationship is not established,
+     prefer no correction or an unclear conclusion over speculation.
+     Confidence must reflect the strength and consistency of the evidence,
+     not the apparent precision of numeric inputs.
+
+  8. FINAL VALIDATION
+     Ensure the conclusion, direction, correction strength, confidence,
+     evidence, limitations, and evidence ModelIDs agree with one another.
+     Every cited ModelID must occur in the supplied data.
+     Return exactly one JSON object matching the supplied JSON Schema.
+     Do not include Markdown, commentary, or additional fields.
 
 expression: |-
   Target gene: {gene}
@@ -12,10 +99,52 @@ expression: |-
   Final retrieved neighbours: {neighbours}
   Test and neighbour expression values: {modality_data}
 
-  Analyze whether the target and related-gene expression context supports the
-  baseline. Identify consistent neighbours, expression exceptions, and whether
-  evidence supports increased dependency, decreased dependency, no correction,
-  or is unclear. More negative Gene Effect means stronger dependency.
+  TASK
+  Assess whether the test model's expression profile for the target gene and
+  supplied related genes provides reliable local evidence for or against
+  correcting the numerical KNN baseline.
+
+  REQUIRED CHECKS
+  1. Compare the test model's expression profile with the retrieved neighbours.
+  2. Identify neighbours whose expression profiles are relatively consistent
+     with the test model and neighbours with notable expression differences,
+     using only the supplied features and similarity information.
+  3. Examine the observed Gene Effect values of those neighbours, where
+     available. Determine whether similar expression contexts are associated
+     with reasonably consistent outcomes or with substantial outcome dispersion.
+  4. Check whether any proposed expression-related pattern is supported by
+     multiple neighbours and whether counterexamples contradict it.
+  5. Pay particular attention to cases in which neighbours have similar
+     expression profiles but very different Gene Effect values. Such cases
+     weaken the ability of expression evidence alone to justify a correction.
+  6. Distinguish descriptive differences from predictive evidence. A gene's
+     expression being higher or lower does not by itself demonstrate stronger
+     or weaker dependency.
+  7. Assess whether the expression evidence supports increased dependency,
+     decreased dependency, no correction, or an unclear direction.
+
+  DISPERSION AND ROBUSTNESS
+  - Explicitly account for the spread of neighbour Gene Effect values when
+    these values are supplied.
+  - Do not treat the nearest expression neighbour as decisive if other
+    relevant neighbours contradict its outcome.
+  - Do not infer a reliable expression-Gene Effect relationship from a small
+    number of cases without clear, repeated support.
+  - If outcomes vary substantially despite similar expression profiles, state
+    that expression evidence has limited power to distinguish dependency
+    strength in this case.
+  - If the evidence does not support a direction, prefer direction "none" or
+    "unclear" according to the schema's intended distinction.
+
+  DIRECTION
+  More negative Gene Effect means stronger dependency.
+  Any proposed increase in dependency must correspond to a more negative
+  predicted Gene Effect. Any proposed decrease in dependency must correspond
+  to a less negative predicted Gene Effect.
+
+  Do not make a numerical adjustment unless the schema explicitly provides a
+  numerical adjustment field. Report only the evidence-based direction and
+  correction strength allowed by the schema.
 
   JSON Schema: {response_schema}
   Example: {response_example}
@@ -27,9 +156,53 @@ mutation: |-
   Final retrieved neighbours: {neighbours}
   Test and neighbour mutation features: {modality_data}
 
-  Determine whether concrete mutation differences support a correction to the
-  baseline. Mutation absence is missing/negative evidence for a correction, not
-  evidence for a weak-effect class. More negative Gene Effect means stronger dependency.
+  TASK
+  Determine whether mutation features provide concrete local evidence that
+  supports correcting the numerical KNN baseline.
+
+  REQUIRED CHECKS
+  1. Identify which mutation features are available and which distinguish the
+     test model from the retrieved neighbours.
+  2. Compare mutation patterns across the test model and relevant neighbours.
+  3. Where Gene Effect outcomes are available, examine whether a mutation
+     pattern is repeatedly associated with stronger or weaker dependency in
+     the supplied cases.
+  4. Check for counterexamples and contradictory outcomes among neighbours
+     with similar mutation patterns.
+  5. Distinguish an observed mutation difference from evidence that the
+     difference predicts dependency strength.
+  6. Determine whether mutation evidence supports increased dependency,
+     decreased dependency, no correction, or an unclear direction.
+
+  DISPERSION AND ROBUSTNESS
+  - Examine the spread of observed Gene Effect values when available.
+  - If neighbours with similar mutation profiles have widely differing
+    outcomes, do not treat the mutation profile as a reliable directional
+    signal without additional supporting evidence.
+  - If a proposed pattern is supported by only one case, treat it as fragile.
+  - Do not ignore counterexamples that contradict the proposed association.
+  - When outcomes are highly dispersed, require repeated and consistent
+    mutation-associated evidence before recommending a correction.
+  - High dispersion should reduce confidence in a directional conclusion.
+
+  MISSINGNESS AND NEGATIVE EVIDENCE
+  - Absence of a mutation is not evidence that the target gene has weak
+    dependency.
+  - A mutation feature that is absent, constant, missing, or uninformative
+    cannot justify a correction on its own.
+  - Do not interpret unavailable mutation data as confirmed mutation absence.
+  - Do not infer functional consequences or causal mechanisms unless they
+    are supported by the supplied evidence.
+
+  DIRECTION
+  More negative Gene Effect means stronger dependency.
+  Any proposed increase in dependency must correspond to a more negative
+  predicted Gene Effect. Any proposed decrease in dependency must correspond
+  to a less negative predicted Gene Effect.
+
+  Do not make a numerical adjustment unless the schema explicitly provides a
+  numerical adjustment field. Report only the evidence-based direction and
+  correction strength allowed by the schema.
 
   JSON Schema: {response_schema}
   Example: {response_example}
@@ -41,8 +214,51 @@ cnv: |-
   Final retrieved neighbours: {neighbours}
   Test and neighbour CNV values: {modality_data}
 
-  Determine whether copy-number gains/losses and differences from retrieved cases
-  support a correction to the baseline. More negative Gene Effect means stronger dependency.
+  TASK
+  Assess whether copy-number features provide concrete local evidence for
+  correcting the numerical KNN baseline.
+
+  REQUIRED CHECKS
+  1. Identify the supplied CNV measurements and compare the test model with
+     the retrieved neighbours.
+  2. Distinguish meaningful differences in the supplied CNV features from
+     constant, missing, or uninformative values.
+  3. Where observed Gene Effect values are available, check whether similar
+     CNV contexts are associated with consistent or highly variable outcomes.
+  4. Determine whether any relationship between CNV and Gene Effect is
+     repeated across multiple neighbours.
+  5. Examine counterexamples and avoid selecting only the cases that support
+     a preferred interpretation.
+  6. Determine whether the CNV evidence supports increased dependency,
+     decreased dependency, no correction, or an unclear direction.
+
+  DISPERSION AND ROBUSTNESS
+  - Explicitly assess the spread of neighbour outcomes when these are supplied.
+  - If neighbours with similar CNV values show substantially different Gene
+    Effect values, treat CNV as insufficient to determine the direction of a
+    correction unless another consistent pattern is present.
+  - If CNV values are identical or nearly identical across the retrieved
+    neighbours, do not treat that feature as discriminative evidence.
+  - Do not infer a CNV effect from one unusual neighbour.
+  - When outcome dispersion is high, require stronger and more consistent
+    CNV-associated evidence before proposing a correction.
+  - If the proposed relationship is unstable or contradicted by multiple
+    neighbours, prefer no correction or an unclear direction.
+
+  INTERPRETATION
+  Copy-number gain or loss alone does not prove stronger or weaker dependency.
+  Do not infer a causal biological mechanism that is not established by the
+  supplied data.
+
+  DIRECTION
+  More negative Gene Effect means stronger dependency.
+  Any proposed increase in dependency must correspond to a more negative
+  predicted Gene Effect. Any proposed decrease in dependency must correspond
+  to a less negative predicted Gene Effect.
+
+  Do not make a numerical adjustment unless the schema explicitly provides a
+  numerical adjustment field. Report only the evidence-based direction and
+  correction strength allowed by the schema.
 
   JSON Schema: {response_schema}
   Example: {response_example}
@@ -54,9 +270,39 @@ metadata: |-
   Final retrieved neighbours: {neighbours}
   Test and neighbour metadata: {modality_data}
 
-  Assess transferability of the retrieved evidence using lineage, disease,
-  primary/metastatic status, and collection context. Do not independently predict
-  Gene Effect. State whether metadata makes the baseline more or less reliable.
+  TASK
+  Assess whether metadata affects how reliably the retrieved neighbours can
+  inform the test model's KNN baseline.
+
+  Consider supplied metadata such as lineage, disease, primary or metastatic
+  status, and collection context. Use only fields that are actually provided.
+
+  REQUIRED CHECKS
+  1. Identify which neighbours share relevant metadata with the test model
+     and which differ.
+  2. Assess whether the retrieved cases are reasonably transferable to the
+     test model based on the supplied metadata.
+  3. Examine whether metadata groups have consistent or divergent Gene Effect
+     outcomes when those outcomes are supplied.
+  4. Identify potential limitations caused by metadata mismatch, limited
+     coverage, or conflicting outcomes.
+  5. Determine whether metadata makes the baseline more reliable, less
+     reliable, or leaves reliability unclear.
+
+  DISPERSION AND ROBUSTNESS
+  - Pay attention to whether neighbours with matching metadata still show a
+    wide spread of Gene Effect values.
+  - Matching lineage or disease does not guarantee matching dependency.
+  - If outcomes remain highly dispersed within a metadata group, do not claim
+    that metadata establishes a reliable dependency direction.
+  - Do not interpret metadata similarity as direct evidence of stronger or
+    weaker dependency.
+  - Do not independently predict Gene Effect or invent a numerical correction.
+
+  The purpose of this agent is to evaluate transferability and reliability,
+  not to make an independent dependency prediction.
+
+  More negative Gene Effect means stronger dependency.
 
   JSON Schema: {response_schema}
   Example: {response_example}
@@ -72,10 +318,91 @@ judge: |-
   CNV evidence: {cnv_evidence}
   Metadata evidence: {metadata_evidence}
 
-  Use the KNN prediction as the numerical anchor. Return a signed suggested_adjustment:
-  negative means stronger dependency, positive means weaker dependency. Use zero when
-  no concrete evidence supports correction. Contradictory evidence should increase
-  uncertainty and decrease confidence rather than force a middle prediction.
+  TASK
+  Decide whether the numerical KNN baseline should be adjusted in light of the
+  supplied modality-agent evidence. The KNN prediction remains the numerical
+  anchor. Do not assume that an agent is correct merely because it gives a
+  confident conclusion.
+
+  REQUIRED DECISION PROCEDURE
+  1. BASELINE AND OUTCOME DISPERSION
+     Examine the supplied baseline and neighbour outcomes/statistics.
+     Assess the degree of disagreement among retrieved Gene Effect values.
+     If the baseline differs meaningfully from the mean or median, consider
+     whether the difference is explained by weighting or reflects instability.
+     Do not assume the mean or median is automatically superior to the
+     weighted KNN prediction.
+
+  2. EVIDENCE QUALITY
+     Evaluate whether each modality agent cites concrete observations and
+     valid ModelIDs.
+     Distinguish observed data from interpretations and unsupported biological
+     hypotheses.
+     An agent's direction label alone is not sufficient justification for an
+     adjustment.
+     Give less weight to conclusions based on one case, missing features,
+     non-discriminative features, or speculative associations.
+
+  3. CROSS-MODALITY AGREEMENT
+     Check whether independent modality agents provide consistent evidence.
+     Do not count repeated descriptions of the same underlying evidence as
+     independent confirmation.
+     If modality agents disagree, examine whether their conclusions are
+     supported by different relevant observations or whether one agent
+     overinterprets weak evidence.
+
+  4. ROBUSTNESS
+     Check whether the proposed direction is supported by several relevant
+     observations rather than one outlier.
+     If a correction appears to depend on one neighbour, treat it as fragile.
+     Do not claim a numerical sensitivity analysis unless such results are
+     explicitly supplied.
+
+  5. DISPERSION-AWARE DECISION
+     High outcome dispersion does not by itself imply stronger or weaker
+     dependency.
+     When outcomes are highly dispersed, require stronger, more consistent,
+     and better-supported evidence before applying a correction.
+     Contradictory evidence should increase uncertainty and reduce confidence.
+     Do not force a middle prediction simply because evidence conflicts.
+     Do not increase correction magnitude merely because one modality agent
+     reports a strong direction.
+
+  6. ADJUSTMENT
+     Return a signed suggested_adjustment:
+       - negative: predict a more negative Gene Effect, i.e. stronger dependency;
+       - positive: predict a less negative Gene Effect, i.e. weaker dependency;
+       - zero: no evidence-supported numerical correction.
+     The final prediction, if calculated downstream, should be:
+       baseline + suggested_adjustment
+     Use zero when evidence does not support a defensible directional correction.
+     Do not invent a numeric correction from categorical agent outputs alone.
+     If the supplied schema requires a numeric adjustment, use a conservative
+     adjustment consistent with the strength, consistency, and reliability of
+     the evidence. If it provides a calibrated adjustment range or rule, obey it.
+     If no calibration rule is provided and the evidence is insufficient to
+     quantify a correction, use zero.
+
+  7. CONFIDENCE AND LIMITATIONS
+     Confidence should reflect evidence quality, consistency across cases,
+     outcome dispersion, and agreement among genuinely informative modalities.
+     Do not equate high similarity scores with low prediction uncertainty.
+     Explicitly identify the main limitation when neighbour outcomes are
+     widely dispersed or modality evidence is weak.
+
+  8. FINAL VALIDATION
+     Ensure the signed adjustment agrees with the stated direction and
+     conclusion.
+     Ensure cited ModelIDs exist in the supplied data.
+     Do not claim that a proposed correction is validated unless evaluation
+     results supporting it are supplied.
+     Return exactly one JSON object matching the supplied JSON Schema.
+     Do not include Markdown or additional fields.
+
+  DIRECTION
+  More negative Gene Effect means stronger dependency.
+  A negative suggested_adjustment strengthens dependency; a positive
+  suggested_adjustment weakens dependency.
 
   JSON Schema: {response_schema}
   Example: {response_example}
