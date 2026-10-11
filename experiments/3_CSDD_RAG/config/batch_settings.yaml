@@ -1,0 +1,30 @@
+batch_name: ACO2_20_models
+target_gene: ACO2
+
+test_model_ids:
+  - ACH-001959
+  - ACH-000381
+  - ACH-000988
+  - ACH-001341
+  - ACH-002042
+  - ACH-001709
+  - ACH-001020
+  - ACH-000250
+  - ACH-000433
+  - ACH-001347
+  - ACH-000820
+  - ACH-000176
+  - ACH-001685
+  - ACH-003573
+  - ACH-000354
+  - ACH-000804
+  - ACH-000417
+  - ACH-000890
+  - ACH-002463
+  - ACH-001675
+
+use_llm: true
+run_ablations: false
+
+output:
+  directory: ../batch_results
