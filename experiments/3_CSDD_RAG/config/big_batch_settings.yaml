@@ -1,0 +1,27 @@
+batch_name: GT_10_genes_1000_train_200_test
+
+split:
+  source_dataset: ../../../data/CRISPRGeneEffect_GT_all_three_categories.csv
+  train_rows: 1000
+  test_rows: 200
+  train_dataset: ../../../data/rag_big_test/GT_train_first_1000.csv
+  test_dataset: ../../../data/rag_big_test/GT_test_next_200.csv
+
+target_genes:
+  - CRKL (1399)
+  - ACO2 (50)
+  - ADSL (158)
+  - ATL2 (64225)
+  - CFLAR (8837)
+  - AP2M1 (1173)
+  - CTPS1 (1503)
+  - ACTB (60)
+  - CDK6 (1021)
+  - AP2S1 (1175)
+
+use_llm: true
+run_ablations: false
+resume: true
+
+output:
+  directory: ../batch_results

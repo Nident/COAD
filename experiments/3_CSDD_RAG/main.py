@@ -244,35 +244,35 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("target_gene", nargs="?")
     parser.add_argument("test_model_id", nargs="?")
+    parser.add_argument("--reference-model-ids-file")
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--no-ablations", action="store_true")
     return parser.parse_args()
 
 
-def main() -> None:
-    arguments = parse_arguments()
-    project_dir = Path(__file__).parent
-    config_path = project_dir / "config" / "settings.yaml"
-    config = cast(
-        dict[str, Any],
-        yaml.safe_load(config_path.read_text(encoding="utf-8")),
-    )
-    target_gene = arguments.target_gene or config["input"]["target_gene"]
-    test_model_id = (
-        arguments.test_model_id or config["input"]["test_model_id"]
-    )
+def run_case(
+    project_dir: Path,
+    config: dict[str, Any],
+    repository: DataRepository,
+    data: TrainingData,
+    run_target_gene: str,
+    use_llm: bool,
+    execute_ablations: bool,
+    configured_reference_model_count: int | None = None,
+    graph: DependencyRAGGraph | None = None,
+    update_global_summary: bool = False,
+) -> tuple[dict[str, object], Path]:
     retrieval_config = cast(dict[str, Any], config["retrieval"])
     prediction_config = cast(dict[str, Any], config["prediction"])
-    use_llm = bool(prediction_config["use_llm"]) and not arguments.no_llm
-    run_name = f"{safe_name(target_gene)}_{safe_name(test_model_id)}"
+    run_name = (
+        f"{safe_name(run_target_gene)}_{safe_name(data.test_model_id)}"
+    )
     runs_dir = (project_dir / "config" / config["output"]["runs"]).resolve()
     run_dir = runs_dir / run_name
     if run_dir.exists():
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    repository = DataRepository(config_path)
-    data = repository.load(target_gene, test_model_id)
     retriever = MultiOmicsRetriever(retrieval_config)
     result = retriever.retrieve(
         data,
@@ -285,11 +285,13 @@ def main() -> None:
         "TargetGene": data.target_gene,
         "TargetColumn": data.target_column,
         "TestModelID": data.test_model_id,
+        "ConfiguredReferenceModelCount": configured_reference_model_count,
+        "AvailableReferenceModelCount": len(data.reference_effects),
         "UseLLM": use_llm,
     })
 
     ablations: list[dict[str, object]] = []
-    if bool(config["experiments"]["run_ablations"]) and not arguments.no_ablations:
+    if execute_ablations:
         ablations = run_ablations(retriever, data)
 
     baseline_effect = float(result.baseline["weighted_prediction"])
@@ -299,11 +301,11 @@ def main() -> None:
     llm_adjustment = 0.0
 
     if use_llm:
-        graph = DependencyRAGGraph(project_dir / "config")
+        active_graph = graph or DependencyRAGGraph(project_dir / "config")
         state_input = graph_input(data, result)
-        save_prepared_prompts(run_dir, graph, state_input)
+        save_prepared_prompts(run_dir, active_graph, state_input)
         try:
-            state = graph.invoke(state_input)
+            state = active_graph.invoke(state_input)
         except Exception as error:
             save_json(run_dir / "error.json", {
                 "error_type": type(error).__name__,
@@ -333,7 +335,10 @@ def main() -> None:
     }
     save_json(run_dir / "prediction.json", prediction)
 
-    actual_effect = repository.actual_effect(data.target_column, test_model_id)
+    actual_effect = repository.actual_effect(
+        data.target_column,
+        data.test_model_id,
+    )
     actual_category = effect_category(actual_effect, thresholds)
     evaluation: dict[str, object] = {
         **prediction,
@@ -368,9 +373,58 @@ def main() -> None:
         })
         pd.DataFrame(ablations).to_csv(run_dir / "ablations.csv", index=False)
 
-    summary = evaluation_summary(runs_dir)
-    if summary is not None:
-        save_json(runs_dir / "evaluation_summary.json", summary)
+    if update_global_summary:
+        summary = evaluation_summary(runs_dir)
+        if summary is not None:
+            save_json(runs_dir / "evaluation_summary.json", summary)
+    return evaluation, run_dir
+
+
+def main() -> None:
+    arguments = parse_arguments()
+    project_dir = Path(__file__).parent
+    config_path = project_dir / "config" / "settings.yaml"
+    config = cast(
+        dict[str, Any],
+        yaml.safe_load(config_path.read_text(encoding="utf-8")),
+    )
+    target_gene = arguments.target_gene or config["input"]["target_gene"]
+    test_model_id = (
+        arguments.test_model_id or config["input"]["test_model_id"]
+    )
+    prediction_config = cast(dict[str, Any], config["prediction"])
+    use_llm = bool(prediction_config["use_llm"]) and not arguments.no_llm
+    execute_ablations = (
+        bool(config["experiments"]["run_ablations"])
+        and not arguments.no_ablations
+    )
+    reference_model_ids = None
+    if arguments.reference_model_ids_file:
+        reference_model_ids = cast(
+            list[str],
+            pd.read_csv(arguments.reference_model_ids_file)["ModelID"].tolist(),
+        )
+    repository = DataRepository(config_path)
+    data = repository.load(
+        target_gene,
+        test_model_id,
+        reference_model_ids,
+    )
+    evaluation, run_dir = run_case(
+        project_dir=project_dir,
+        config=config,
+        repository=repository,
+        data=data,
+        run_target_gene=target_gene,
+        use_llm=use_llm,
+        execute_ablations=execute_ablations,
+        configured_reference_model_count=(
+            len(reference_model_ids)
+            if reference_model_ids is not None
+            else None
+        ),
+        update_global_summary=True,
+    )
     print(json.dumps(evaluation, ensure_ascii=False, indent=2))
     print(run_dir)
 

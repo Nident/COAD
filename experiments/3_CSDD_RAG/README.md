@@ -64,6 +64,24 @@ Run a configured batch of held-out ModelIDs:
 python3 batch.py
 ```
 
+Run the fixed 1000-reference / 200-test evaluation for 10 target genes:
+
+```bash
+python3 big_batch.py config/big_batch_settings.yaml
+```
+
+Prepare and inspect the split without calling any LLM:
+
+```bash
+python3 big_batch.py config/big_batch_settings.yaml --prepare-only
+```
+
+This creates the configured 1000/200 train/test CSV files and restricts
+retrieval to the same first 1000 reference ModelIDs for every prediction.
+Models without RNA-expression data are listed separately and excluded because
+the pipeline requires expression-first retrieval. Progress is persisted after
+each prediction, and `resume: true` continues an interrupted run.
+
 Change `target_gene`, `test_model_ids`, `use_llm`, and `run_ablations` in
 `config/batch_settings.yaml`. A separate `predictions.csv` and `metrics.json`
 are written for exactly the ModelIDs listed in that file. Per-category TP, FP,

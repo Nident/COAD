@@ -47,6 +47,7 @@ class DataRepository:
         self.data_path = (
             config_path.parent / self.data_config["data_path"]
         ).resolve()
+        self.effect_cache: dict[str, pd.Series] = {}
 
     @staticmethod
     def gene_symbol(column: str) -> str:
@@ -81,7 +82,12 @@ class DataRepository:
                 relations.update(cast(dict[str, list[str]], json.loads(line)))
         return relations
 
-    def load(self, target_gene: str, test_model_id: str) -> TrainingData:
+    def load(
+        self,
+        target_gene: str,
+        test_model_id: str,
+        reference_model_ids: list[str] | None = None,
+    ) -> TrainingData:
         effect_path = self._path("crispr")
         effect_columns = pd.read_csv(effect_path, nrows=0).columns.tolist()
         target_column = self._resolve_column(effect_columns, target_gene)
@@ -90,7 +96,15 @@ class DataRepository:
             usecols=[effect_columns[0], target_column],
         ).rename(columns={effect_columns[0]: "ModelID"})
         effect = effect.dropna(subset=[target_column]).set_index("ModelID")
+        self.effect_cache[target_column] = cast(
+            pd.Series,
+            effect[target_column].astype(float).copy(),
+        )
         reference_effect = effect.drop(index=test_model_id)
+        if reference_model_ids is not None:
+            reference_effect = reference_effect.loc[
+                reference_effect.index.isin(reference_model_ids)
+            ]
         relations = self._relations()
         related_columns = relations[target_column]
 
@@ -169,6 +183,8 @@ class DataRepository:
         )
 
     def actual_effect(self, target_column: str, test_model_id: str) -> float:
+        if target_column in self.effect_cache:
+            return float(self.effect_cache[target_column].loc[test_model_id])
         effect_columns = pd.read_csv(self._path("crispr"), nrows=0).columns
         model_id_column = str(effect_columns[0])
         effect = pd.read_csv(
