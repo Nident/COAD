@@ -96,7 +96,6 @@ expression: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Final retrieved neighbours: {neighbours}
   Test and neighbour expression values: {modality_data}
 
   TASK
@@ -153,7 +152,6 @@ mutation: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Final retrieved neighbours: {neighbours}
   Test and neighbour mutation features: {modality_data}
 
   TASK
@@ -211,7 +209,6 @@ cnv: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Final retrieved neighbours: {neighbours}
   Test and neighbour CNV values: {modality_data}
 
   TASK
@@ -267,7 +264,6 @@ metadata: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Final retrieved neighbours: {neighbours}
   Test and neighbour metadata: {modality_data}
 
   TASK

@@ -59,7 +59,6 @@ class Prompts:
         gene: str,
         test_model_id: str,
         baseline: str,
-        neighbours: str,
         modality_data: str,
     ) -> PromptValue:
         schema = self.ANALYST_SCHEMAS[role]
@@ -71,7 +70,6 @@ class Prompts:
             "gene": gene,
             "test_model_id": test_model_id,
             "baseline": baseline,
-            "neighbours": neighbours,
             "modality_data": modality_data,
             "response_schema": json.dumps(
                 schema.model_json_schema(), ensure_ascii=False

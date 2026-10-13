@@ -82,10 +82,14 @@ remain in ignored `config/secrets.yaml`.
 Each run is saved under `runs/<gene>_<ModelID>/`:
 
 - `retrieval/expression_top_30.csv`: primary expression retrieval;
+- `retrieval/mutation_top_30.csv`: mutation similarity for expression candidates;
+- `retrieval/cnv_top_30.csv`: CNV similarity for expression candidates;
+- `retrieval/metadata_top_30.csv`: metadata similarity for expression candidates;
 - `retrieval/reranked_top_30.csv`: contextual scores and final ranking;
 - `retrieval/final_top_k.csv`: cases used by KNN and agents;
 - `retrieval/knn_baseline.json`: deterministic prediction and uncertainty;
-- `evidence/`: exact local tables supplied to agents;
+- `evidence/`: separate expression, mutation, CNV, and metadata tables supplied
+  to their corresponding agents; each table contains only its own similarity;
 - `prompts/`: every prompt and estimated token count;
 - `agent_outputs/`: structured evidence and judge decision;
 - `prediction.json`: prediction without the hidden answer;

@@ -75,7 +75,7 @@ def graph_input(
         "baseline": dict_json(result.baseline),
         "neighbours": frame_json(result.top_k),
         "expression_data": frame_json(result.expression_context),
-        "mutation_data": dict_json(result.mutation_context),
+        "mutation_data": frame_json(result.mutation_context),
         "cnv_data": frame_json(result.cnv_context),
         "metadata_data": frame_json(result.metadata_context),
     }
@@ -86,6 +86,18 @@ def save_retrieval(run_dir: Path, result: RetrievalResult) -> None:
     retrieval_dir.mkdir(parents=True, exist_ok=True)
     result.expression_top.to_csv(
         retrieval_dir / "expression_top_30.csv",
+        index=False,
+    )
+    result.mutation_candidates.to_csv(
+        retrieval_dir / "mutation_top_30.csv",
+        index=False,
+    )
+    result.cnv_candidates.to_csv(
+        retrieval_dir / "cnv_top_30.csv",
+        index=False,
+    )
+    result.metadata_candidates.to_csv(
+        retrieval_dir / "metadata_top_30.csv",
         index=False,
     )
     result.reranked_top.to_csv(
@@ -107,7 +119,10 @@ def save_retrieval(run_dir: Path, result: RetrievalResult) -> None:
         evidence_dir / "metadata_context.csv",
         index=False,
     )
-    save_json(evidence_dir / "mutation_context.json", result.mutation_context)
+    result.mutation_context.to_csv(
+        evidence_dir / "mutation_context.csv",
+        index=False,
+    )
 
 
 def save_prepared_prompts(

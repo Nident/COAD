@@ -78,7 +78,6 @@ class DependencyRAGGraph:
             gene=state["gene"],
             test_model_id=state["test_model_id"],
             baseline=state["baseline"],
-            neighbours=state["neighbours"],
             modality_data=state[field],
         )
 

@@ -13,11 +13,14 @@ from Data import DataRepository, TrainingData
 @dataclass(frozen=True)
 class RetrievalResult:
     expression_top: pd.DataFrame
+    mutation_candidates: pd.DataFrame
+    cnv_candidates: pd.DataFrame
+    metadata_candidates: pd.DataFrame
     reranked_top: pd.DataFrame
     top_k: pd.DataFrame
     baseline: dict[str, Any]
     expression_context: pd.DataFrame
-    mutation_context: dict[str, list[str]]
+    mutation_context: pd.DataFrame
     cnv_context: pd.DataFrame
     metadata_context: pd.DataFrame
     feature_manifest: dict[str, Any]
@@ -165,13 +168,21 @@ class MultiOmicsRetriever:
             matches.append(float(test_value == neighbour_value))
         return float(np.mean(matches)) if matches else 0.5
 
-    def retrieve(
-        self,
-        data: TrainingData,
-        use_mutation: bool,
-        use_cnv: bool,
-        use_metadata: bool,
-    ) -> RetrievalResult:
+    @staticmethod
+    def _rank(
+        table: pd.DataFrame,
+        similarity_column: str,
+        rank_column: str,
+    ) -> pd.DataFrame:
+        ranked = table.copy()
+        ranked[rank_column] = (
+            ranked[similarity_column]
+            .rank(method="first", ascending=False)
+            .astype(int)
+        )
+        return ranked
+
+    def retrieve_expression(self, data: TrainingData) -> pd.DataFrame:
         reference_ids = data.reference_effects.index
         expression_train = data.expression.loc[
             reference_ids,
@@ -191,26 +202,54 @@ class MultiOmicsRetriever:
             self.settings["expression_metric"],
         )
         expression_top = pd.DataFrame({
-            "ModelID": reference_ids,
+            "ModelID": reference_ids.astype(str),
             "ExpressionSimilarity": expression_similarity,
         }).sort_values("ExpressionSimilarity", ascending=False).head(
             self.settings["expression_candidates"]
         ).reset_index(drop=True)
-        expression_top["ExpressionRank"] = np.arange(1, len(expression_top) + 1)
+        expression_top["ExpressionRank"] = np.arange(
+            1,
+            len(expression_top) + 1,
+        )
+        return expression_top
 
-        candidate_ids = cast(list[str], expression_top["ModelID"].tolist())
+    def retrieve_mutation(
+        self,
+        data: TrainingData,
+        candidate_ids: list[str],
+    ) -> tuple[pd.DataFrame, dict[str, set[str]], list[str]]:
         if self._mutation_cache is None:
-            self._mutation_cache = self._mutation_profiles(data, reference_ids)
+            self._mutation_cache = self._mutation_profiles(
+                data,
+                data.reference_effects.index,
+            )
         mutation_profiles, mutation_features = self._mutation_cache
         test_mutations = mutation_profiles.get(data.test_model_id, set())
-        mutation_similarity = [
-            self._jaccard(test_mutations, mutation_profiles.get(model_id, set()))
-            for model_id in candidate_ids
-        ]
+        table = pd.DataFrame({
+            "ModelID": candidate_ids,
+            "MutationSimilarity": [
+                self._jaccard(
+                    test_mutations,
+                    mutation_profiles.get(model_id, set()),
+                )
+                for model_id in candidate_ids
+            ],
+        })
+        return (
+            self._rank(table, "MutationSimilarity", "MutationRank"),
+            mutation_profiles,
+            mutation_features,
+        )
 
+    def retrieve_cnv(
+        self,
+        data: TrainingData,
+        candidate_ids: list[str],
+    ) -> tuple[pd.DataFrame, list[str]]:
         cnv_columns = [
             column for column in data.feature_columns if column in data.cnv.columns
         ]
+        reference_ids = data.reference_effects.index
         cnv_reference_ids = reference_ids.intersection(data.cnv.index)
         cnv_train = data.cnv.loc[cnv_reference_ids, cnv_columns].apply(
             pd.to_numeric,
@@ -222,23 +261,104 @@ class MultiOmicsRetriever:
                 errors="coerce",
             )
             cnv_train_scaled, cnv_test_scaled = self._matrix(cnv_train, cnv_test)
-            cnv_scores = dict(zip(
-                cnv_reference_ids,
-                self._similarity(cnv_train_scaled, cnv_test_scaled, "cosine"),
-                strict=True,
-            ))
+            scaled_by_model = {
+                str(model_id): cnv_train_scaled[index]
+                for index, model_id in enumerate(cnv_reference_ids)
+            }
+            available_ids = [
+                model_id for model_id in candidate_ids
+                if model_id in scaled_by_model
+            ]
+            if available_ids:
+                available_matrix = np.asarray([
+                    scaled_by_model[model_id] for model_id in available_ids
+                ])
+                available_scores = self._similarity(
+                    available_matrix,
+                    cnv_test_scaled,
+                    "cosine",
+                )
+                scores = dict(zip(available_ids, available_scores, strict=True))
+            else:
+                scores = {}
         else:
-            cnv_scores = {}
-        cnv_similarity = [cnv_scores.get(model_id, 0.5) for model_id in candidate_ids]
-        metadata_similarity = [
-            self._metadata_similarity(data, model_id)
-            for model_id in candidate_ids
-        ]
+            scores = {}
+        table = pd.DataFrame({
+            "ModelID": candidate_ids,
+            "CNVSimilarity": [
+                float(scores.get(model_id, 0.5)) for model_id in candidate_ids
+            ],
+        })
+        return self._rank(table, "CNVSimilarity", "CNVRank"), cnv_columns
 
-        reranked = expression_top.assign(
-            MutationSimilarity=mutation_similarity,
-            CNVSimilarity=cnv_similarity,
-            MetadataSimilarity=metadata_similarity,
+    def retrieve_metadata(
+        self,
+        data: TrainingData,
+        candidate_ids: list[str],
+    ) -> pd.DataFrame:
+        table = pd.DataFrame({
+            "ModelID": candidate_ids,
+            "MetadataSimilarity": [
+                self._metadata_similarity(data, model_id)
+                for model_id in candidate_ids
+            ],
+        })
+        return self._rank(table, "MetadataSimilarity", "MetadataRank")
+
+    @staticmethod
+    def _context_table(
+        values: pd.DataFrame,
+        scores: pd.DataFrame,
+        evidence_ids: list[str],
+        effects_by_model: dict[str, float],
+        similarity_column: str,
+        rank_column: str,
+    ) -> pd.DataFrame:
+        context = (
+            values.reindex(evidence_ids)
+            .rename_axis("ModelID")
+            .reset_index()
+            .merge(
+                scores[["ModelID", similarity_column, rank_column]],
+                on="ModelID",
+                how="left",
+            )
+        )
+        context["ObservedTargetGeneEffect"] = [
+            effects_by_model.get(str(model_id))
+            for model_id in context["ModelID"].tolist()
+        ]
+        value_columns = [
+            column for column in values.columns if column in context.columns
+        ]
+        return cast(pd.DataFrame, context[[
+            "ModelID",
+            similarity_column,
+            rank_column,
+            *value_columns,
+            "ObservedTargetGeneEffect",
+        ]])
+
+    def retrieve(
+        self,
+        data: TrainingData,
+        use_mutation: bool,
+        use_cnv: bool,
+        use_metadata: bool,
+    ) -> RetrievalResult:
+        reference_ids = data.reference_effects.index
+        expression_top = self.retrieve_expression(data)
+        candidate_ids = cast(list[str], expression_top["ModelID"].tolist())
+        mutation_candidates, mutation_profiles, mutation_features = (
+            self.retrieve_mutation(data, candidate_ids)
+        )
+        cnv_candidates, cnv_columns = self.retrieve_cnv(data, candidate_ids)
+        metadata_candidates = self.retrieve_metadata(data, candidate_ids)
+        reranked = (
+            expression_top
+            .merge(mutation_candidates, on="ModelID", how="left")
+            .merge(cnv_candidates, on="ModelID", how="left")
+            .merge(metadata_candidates, on="ModelID", how="left")
         )
         configured_weights = cast(dict[str, float], self.settings["weights"])
         active_weights = {
@@ -259,10 +379,10 @@ class MultiOmicsRetriever:
         reranked["FinalRank"] = np.arange(1, len(reranked) + 1)
 
         selected = reranked.head(self.settings["top_k"]).copy()
-        effects_by_model = cast(
-            dict[str, float],
-            data.reference_effects.to_dict(),
-        )
+        effects_by_model = {
+            str(model_id): float(effect)
+            for model_id, effect in data.reference_effects.items()
+        }
         selected_ids = cast(list[str], selected["ModelID"].tolist())
         selected["ObservedTargetGeneEffect"] = [
             effects_by_model[model_id] for model_id in selected_ids
@@ -297,20 +417,55 @@ class MultiOmicsRetriever:
             "top_k": len(selected),
         }
 
-        evidence_ids = [data.test_model_id, *cast(list[str], selected["ModelID"].tolist())]
-        expression_context = data.expression.reindex(evidence_ids)[
-            data.feature_columns
-        ].rename_axis("ModelID").reset_index()
-        cnv_context = data.cnv.reindex(evidence_ids)[cnv_columns].rename_axis(
-            "ModelID"
-        ).reset_index()
-        metadata_context = data.metadata.reindex(evidence_ids).rename_axis(
-            "ModelID"
-        ).reset_index()
-        mutation_context = {
-            model_id: sorted(mutation_profiles.get(model_id, set()))
-            for model_id in evidence_ids
-        }
+        evidence_ids = [data.test_model_id, *selected_ids]
+        expression_context = self._context_table(
+            cast(pd.DataFrame, data.expression[data.feature_columns]),
+            expression_top,
+            evidence_ids,
+            effects_by_model,
+            "ExpressionSimilarity",
+            "ExpressionRank",
+        )
+        cnv_context = self._context_table(
+            cast(pd.DataFrame, data.cnv[cnv_columns]),
+            cnv_candidates,
+            evidence_ids,
+            effects_by_model,
+            "CNVSimilarity",
+            "CNVRank",
+        )
+        metadata_context = self._context_table(
+            data.metadata,
+            metadata_candidates,
+            evidence_ids,
+            effects_by_model,
+            "MetadataSimilarity",
+            "MetadataRank",
+        )
+        mutation_context = pd.DataFrame({
+            "ModelID": evidence_ids,
+            "MutationFeatures": [
+                sorted(mutation_profiles.get(model_id, set()))
+                for model_id in evidence_ids
+            ],
+        }).merge(
+            mutation_candidates[
+                ["ModelID", "MutationSimilarity", "MutationRank"]
+            ],
+            on="ModelID",
+            how="left",
+        )
+        mutation_context["ObservedTargetGeneEffect"] = [
+            effects_by_model.get(str(model_id))
+            for model_id in mutation_context["ModelID"].tolist()
+        ]
+        mutation_context = cast(pd.DataFrame, mutation_context[[
+            "ModelID",
+            "MutationSimilarity",
+            "MutationRank",
+            "MutationFeatures",
+            "ObservedTargetGeneEffect",
+        ]])
         feature_manifest: dict[str, Any] = {
             "target_column": data.target_column,
             "expression_features": data.feature_columns,
@@ -328,6 +483,9 @@ class MultiOmicsRetriever:
         }
         return RetrievalResult(
             expression_top=expression_top,
+            mutation_candidates=mutation_candidates,
+            cnv_candidates=cnv_candidates,
+            metadata_candidates=metadata_candidates,
             reranked_top=reranked,
             top_k=selected,
             baseline=baseline,
