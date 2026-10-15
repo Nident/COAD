@@ -1,0 +1,8 @@
+defaults:
+  temperature: 0
+  timeout: 60
+  max_retries: 1
+  max_tokens: 1200
+model:
+  name: deterministic-policy
+  use_llm: false
