@@ -106,6 +106,11 @@ Each run is saved under `runs/<gene>_<ModelID>/`:
 - `retrieval/reranked_top_30.csv`: contextual scores and final ranking;
 - `retrieval/final_top_k.csv`: cases used by KNN and agents;
 - `retrieval/knn_baseline.json`: deterministic prediction and uncertainty;
+- `tools/*_prompt_evidence.json`: train-only statistics sent to each agent;
+- `tools/*_associations.csv`: mutation, CNV, metadata, and selected expression
+  association reports;
+- `tools/shared_reports.json`: path to the full expression correlation report,
+  stored once per target gene and reference cohort under `runs/_tool_reports`;
 - `evidence/`: separate expression, mutation, CNV, and metadata tables supplied
   to their corresponding agents; each table contains only its own similarity;
 - `prompts/`: every prompt and estimated token count;
@@ -132,3 +137,23 @@ flowchart TD
     P --> T[Threshold-based category]
     T --> V[Open hidden effect and evaluate]
 ```
+
+## Statistical tools
+
+The `tools` package prepares numerical evidence before any LLM call:
+
+- `RelatedGenes.py` scans all expression genes on reference models only,
+  calculates Pearson and Spearman associations with the target Gene Effect,
+  applies Benjamini-Hochberg FDR correction, and selects related genes;
+- `Expression.py` fits an expression Ridge regression and reports
+  cross-validated error and an approximate prediction interval;
+- `Mutation.py` compares mutated and non-mutated reference groups with Welch's
+  t-test, effect sizes, confidence intervals, FDR, and a Ridge model;
+- `CNV.py` calculates CNV correlations and a Ridge model;
+- `Metadata.py` compares the test metadata groups with the remaining reference
+  models and fits a one-hot encoded Ridge model;
+- `Pipeline.py` runs the four tools and builds the compact evidence packages
+  used by the modality agents.
+
+The held-out test Gene Effect is not available to these tools. It is opened
+only after the final prediction is produced.

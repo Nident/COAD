@@ -24,6 +24,9 @@ class RetrievalResult:
     cnv_context: pd.DataFrame
     metadata_context: pd.DataFrame
     feature_manifest: dict[str, Any]
+    mutation_profiles: dict[str, set[str]]
+    mutation_features: list[str]
+    cnv_features: list[str]
 
 
 class MultiOmicsRetriever:
@@ -413,6 +416,9 @@ class MultiOmicsRetriever:
             "minimum": float(np.min(effects)),
             "maximum": float(np.max(effects)),
             "mean_similarity": float(np.mean(weights)),
+            "effective_neighbour_count": float(
+                np.square(np.sum(weights)) / np.sum(np.square(weights))
+            ),
             "neighbour_outcome_consistency": consistency,
             "top_k": len(selected),
         }
@@ -494,4 +500,7 @@ class MultiOmicsRetriever:
             cnv_context=cnv_context,
             metadata_context=metadata_context,
             feature_manifest=feature_manifest,
+            mutation_profiles=mutation_profiles,
+            mutation_features=mutation_features,
+            cnv_features=cnv_columns,
         )

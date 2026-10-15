@@ -74,6 +74,7 @@ class GraphInput(TypedDict):
     mutation_data: str
     cnv_data: str
     metadata_data: str
+    tool_statistics: str
 
 
 class GraphState(GraphInput):

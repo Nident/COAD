@@ -96,7 +96,7 @@ expression: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Test and neighbour expression values: {modality_data}
+  Expression evidence package: {modality_data}
 
   TASK
   Assess whether the test model's expression profile for the target gene and
@@ -104,6 +104,11 @@ expression: |-
   correcting the numerical KNN baseline.
 
   REQUIRED CHECKS
+  0. Read the train-only correlation table and Ridge regression summary before
+     interpreting the local neighbours. Use cross-validated MAE, RMSE, R2, and
+     the prediction interval to judge whether the regression estimate is
+     reliable. A low p-value or FDR is association evidence, not proof of
+     causality. Compare the regression prediction with the KNN baseline.
   1. Compare the test model's expression profile with the retrieved neighbours.
   2. Identify neighbours whose expression profiles are relatively consistent
      with the test model and neighbours with notable expression differences,
@@ -152,13 +157,18 @@ mutation: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Test and neighbour mutation features: {modality_data}
+  Mutation evidence package: {modality_data}
 
   TASK
   Determine whether mutation features provide concrete local evidence that
   supports correcting the numerical KNN baseline.
 
   REQUIRED CHECKS
+  0. Read the train-only mutation association table and Ridge regression
+     summary first. Give priority to features actually present in the test
+     model. Consider sample counts, effect difference, FDR, cross-validated
+     error, and the prediction interval together. Do not treat a small p-value
+     with very small groups as sufficient evidence.
   1. Identify which mutation features are available and which distinguish the
      test model from the retrieved neighbours.
   2. Compare mutation patterns across the test model and relevant neighbours.
@@ -209,13 +219,17 @@ cnv: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Test and neighbour CNV values: {modality_data}
+  CNV evidence package: {modality_data}
 
   TASK
   Assess whether copy-number features provide concrete local evidence for
   correcting the numerical KNN baseline.
 
   REQUIRED CHECKS
+  0. Read the train-only CNV correlation table and Ridge regression summary
+     first. Use correlation direction, FDR, cross-validated error, and the
+     prediction interval together. Compare the regression prediction with the
+     KNN baseline before proposing a direction.
   1. Identify the supplied CNV measurements and compare the test model with
      the retrieved neighbours.
   2. Distinguish meaningful differences in the supplied CNV features from
@@ -264,7 +278,7 @@ metadata: |-
   Target gene: {gene}
   Test ModelID: {test_model_id}
   Numerical KNN baseline: {baseline}
-  Test and neighbour metadata: {modality_data}
+  Metadata evidence package: {modality_data}
 
   TASK
   Assess whether metadata affects how reliably the retrieved neighbours can
@@ -274,6 +288,10 @@ metadata: |-
   status, and collection context. Use only fields that are actually provided.
 
   REQUIRED CHECKS
+  0. Read the train-only test-group comparisons and one-hot Ridge regression
+     summary. Use group sizes, effect differences, FDR, cross-validated error,
+     and the prediction interval to assess transferability. Metadata
+     regression remains a reliability signal and is not causal evidence.
   1. Identify which neighbours share relevant metadata with the test model
      and which differ.
   2. Assess whether the retrieved cases are reasonably transferable to the
@@ -313,6 +331,7 @@ judge: |-
   Mutation evidence: {mutation_evidence}
   CNV evidence: {cnv_evidence}
   Metadata evidence: {metadata_evidence}
+  Train-only statistical summary: {tool_statistics}
 
   TASK
   Decide whether the numerical KNN baseline should be adjusted in light of the
@@ -321,6 +340,14 @@ judge: |-
   confident conclusion.
 
   REQUIRED DECISION PROCEDURE
+  0. STATISTICAL ANCHORS
+     Inspect each modality's Ridge prediction, difference from the KNN
+     baseline, cross-validated MAE/RMSE/R2, and prediction interval. Treat a
+     regression estimate as useful only when its validation error and interval
+     support that interpretation. Use association sample sizes, FDR, effect
+     sizes, and confidence intervals to decide whether a feature-level signal
+     supports the same direction. Never use a p-value alone as a numerical
+     correction.
   1. BASELINE AND OUTCOME DISPERSION
      Examine the supplied baseline and neighbour outcomes/statistics.
      Assess the degree of disagreement among retrieved Gene Effect values.

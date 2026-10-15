@@ -1,4 +1,3 @@
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,6 +5,8 @@ from typing import Any, cast
 
 import pandas as pd
 import yaml
+
+from tools.RelatedGenes import RelatedGeneResult, RelatedGeneTool
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,8 @@ class TrainingData:
     mutation: pd.DataFrame
     cnv: pd.DataFrame
     metadata: pd.DataFrame
+    expression_correlations: pd.DataFrame
+    selected_expression_correlations: pd.DataFrame
     test_model_id: str
 
 
@@ -48,6 +51,11 @@ class DataRepository:
             config_path.parent / self.data_config["data_path"]
         ).resolve()
         self.effect_cache: dict[str, pd.Series] = {}
+        self.expression_cache: pd.DataFrame | None = None
+        self.related_gene_cache: dict[
+            tuple[str, tuple[str, ...]],
+            RelatedGeneResult,
+        ] = {}
 
     @staticmethod
     def gene_symbol(column: str) -> str:
@@ -75,12 +83,19 @@ class DataRepository:
             if DataRepository.gene_symbol(column) == symbol
         )
 
-    def _relations(self) -> dict[str, list[str]]:
-        relations: dict[str, list[str]] = {}
-        with self._path("related_genes").open(encoding="utf-8") as file:
-            for line in file:
-                relations.update(cast(dict[str, list[str]], json.loads(line)))
-        return relations
+    def _expression(self) -> pd.DataFrame:
+        if self.expression_cache is None:
+            expression = pd.read_csv(self._path("expression"), low_memory=False)
+            gene_columns = [
+                column for column in expression.columns
+                if re.search(r"\(\d+\)$", str(column))
+            ]
+            self.expression_cache = cast(pd.DataFrame, (
+                self._default_rows(expression)
+                .drop_duplicates("ModelID")
+                .set_index("ModelID")[[*gene_columns]]
+            ))
+        return cast(pd.DataFrame, self.expression_cache)
 
     def load(
         self,
@@ -105,38 +120,29 @@ class DataRepository:
             reference_effect = reference_effect.loc[
                 reference_effect.index.isin(reference_model_ids)
             ]
-        relations = self._relations()
-        related_columns = relations[target_column]
-
-        expression_path = self._path("expression")
-        expression_header = pd.read_csv(
-            expression_path,
-            nrows=0,
-        ).columns.tolist()
-        feature_columns = [
-            column
-            for column in [target_column, *related_columns]
-            if column in expression_header
-        ]
-        expression = pd.read_csv(
-            expression_path,
-            usecols=[
-                "ModelID",
-                "IsDefaultEntryForModel",
-                *feature_columns,
-            ],
-            low_memory=False,
-        )
-        expression = (
-            self._default_rows(expression)
-            .drop_duplicates("ModelID")
-            .set_index("ModelID")
-        )
-
-        reference_ids = reference_effect.index.intersection(expression.index)
+        full_expression = self._expression()
+        reference_ids = reference_effect.index.intersection(full_expression.index)
         reference_effects = cast(
             pd.Series,
             reference_effect.loc[reference_ids, target_column].astype(float).copy(),
+        )
+        analysis_config = cast(dict[str, Any], self.config["analysis"])
+        cache_key = (target_column, tuple(reference_ids.astype(str)))
+        if cache_key not in self.related_gene_cache:
+            selector = RelatedGeneTool(
+                top_k=int(analysis_config["related_genes_top_k"]),
+                fdr_alpha=float(analysis_config["fdr_alpha"]),
+            )
+            self.related_gene_cache[cache_key] = selector.analyze(
+                full_expression.loc[reference_ids],
+                reference_effects,
+                target_column,
+            )
+        related = self.related_gene_cache[cache_key]
+        feature_columns = [target_column, *related.related_genes]
+        expression = cast(
+            pd.DataFrame,
+            full_expression[feature_columns].copy(),
         )
 
         cnv_path = self._path("cnv")
@@ -179,6 +185,8 @@ class DataRepository:
             mutation=mutation,
             cnv=cnv,
             metadata=metadata,
+            expression_correlations=related.all_correlations,
+            selected_expression_correlations=related.selected_correlations,
             test_model_id=test_model_id,
         )
 

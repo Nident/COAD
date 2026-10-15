@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -16,6 +17,7 @@ from Data import DataRepository, TrainingData
 from Graph import DependencyRAGGraph
 from Retrieval import MultiOmicsRetriever, RetrievalResult
 from Schemas import CompletedGraphState, EffectCategory, GraphInput
+from tools import MultiOmicsToolbox, ToolEvidence
 
 
 TOKEN_ENCODING = tiktoken.get_encoding("cl100k_base")
@@ -40,7 +42,23 @@ def frame_json(table: pd.DataFrame) -> str:
 
 
 def dict_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(
+        json_ready(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def json_ready(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(key): json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_ready(item) for item in value]
+    if isinstance(value, np.generic):
+        return json_ready(value.item())
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
 
 
 def prompt_metrics(text: str) -> dict[str, object]:
@@ -68,16 +86,18 @@ def effect_category(
 def graph_input(
     data: TrainingData,
     result: RetrievalResult,
+    evidence: ToolEvidence,
 ) -> GraphInput:
     return {
         "gene": data.target_gene,
         "test_model_id": data.test_model_id,
         "baseline": dict_json(result.baseline),
         "neighbours": frame_json(result.top_k),
-        "expression_data": frame_json(result.expression_context),
-        "mutation_data": frame_json(result.mutation_context),
-        "cnv_data": frame_json(result.cnv_context),
-        "metadata_data": frame_json(result.metadata_context),
+        "expression_data": dict_json(evidence.prompt_packages["expression"]),
+        "mutation_data": dict_json(evidence.prompt_packages["mutation"]),
+        "cnv_data": dict_json(evidence.prompt_packages["cnv"]),
+        "metadata_data": dict_json(evidence.prompt_packages["metadata"]),
+        "tool_statistics": dict_json(evidence.judge_summary),
     }
 
 
@@ -123,6 +143,41 @@ def save_retrieval(run_dir: Path, result: RetrievalResult) -> None:
         evidence_dir / "mutation_context.csv",
         index=False,
     )
+
+
+def save_tool_evidence(
+    run_dir: Path,
+    data: TrainingData,
+    evidence: ToolEvidence,
+) -> None:
+    tools_dir = run_dir / "tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    for modality, package in evidence.prompt_packages.items():
+        save_json(tools_dir / f"{modality}_prompt_evidence.json", json_ready(package))
+    save_json(
+        tools_dir / "judge_statistical_summary.json",
+        json_ready(evidence.judge_summary),
+    )
+    reference_signature = hashlib.sha1(
+        "\n".join(data.reference_effects.index.astype(str)).encode("utf-8")
+    ).hexdigest()[:12]
+    shared_dir = (
+        run_dir.parent
+        / "_tool_reports"
+        / safe_name(data.target_column)
+        / reference_signature
+    )
+    shared_reports: dict[str, str] = {}
+    for name, table in evidence.artifacts.items():
+        if name.startswith("all_expression"):
+            shared_dir.mkdir(parents=True, exist_ok=True)
+            path = shared_dir / f"{name}.csv"
+            if not path.exists():
+                table.to_csv(path, index=False)
+            shared_reports[name] = str(path)
+        else:
+            table.to_csv(tools_dir / f"{name}.csv", index=False)
+    save_json(tools_dir / "shared_reports.json", shared_reports)
 
 
 def save_prepared_prompts(
@@ -260,6 +315,7 @@ def run_case(
     execute_ablations: bool,
     configured_reference_model_count: int | None = None,
     graph: DependencyRAGGraph | None = None,
+    toolbox: MultiOmicsToolbox | None = None,
     update_global_summary: bool = False,
 ) -> tuple[dict[str, object], Path]:
     retrieval_config = cast(dict[str, Any], config["retrieval"])
@@ -281,6 +337,11 @@ def run_case(
         bool(retrieval_config["use_metadata_rerank"]),
     )
     save_retrieval(run_dir, result)
+    active_toolbox = toolbox or MultiOmicsToolbox(
+        cast(dict[str, Any], config["analysis"])
+    )
+    tool_evidence = active_toolbox.analyze(data, result)
+    save_tool_evidence(run_dir, data, tool_evidence)
     save_json(run_dir / "input.json", {
         "TargetGene": data.target_gene,
         "TargetColumn": data.target_column,
@@ -302,7 +363,7 @@ def run_case(
 
     if use_llm:
         active_graph = graph or DependencyRAGGraph(project_dir / "config")
-        state_input = graph_input(data, result)
+        state_input = graph_input(data, result, tool_evidence)
         save_prepared_prompts(run_dir, active_graph, state_input)
         try:
             state = active_graph.invoke(state_input)

@@ -12,6 +12,7 @@ from batch import agent_diagnostics, metrics, safe_name
 from Data import DataRepository
 from Graph import DependencyRAGGraph
 from main import run_case
+from tools import MultiOmicsToolbox
 
 
 def save_json(path: Path, value: object) -> None:
@@ -211,6 +212,7 @@ def main() -> None:
         if use_llm
         else None
     )
+    toolbox = MultiOmicsToolbox(cast(dict[str, Any], settings["analysis"]))
     for target_gene in target_genes:
         base_data = repository.load(
             target_gene,
@@ -248,6 +250,7 @@ def main() -> None:
                     execute_ablations=run_ablations,
                     configured_reference_model_count=len(train_model_ids),
                     graph=graph,
+                    toolbox=toolbox,
                     update_global_summary=False,
                 )
                 save_json(evaluation_copy, evaluation)

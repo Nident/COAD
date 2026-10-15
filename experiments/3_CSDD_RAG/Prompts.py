@@ -89,6 +89,7 @@ class Prompts:
         mutation: MutationEvidence,
         cnv: CNVEvidence,
         metadata: MetadataEvidence,
+        tool_statistics: str,
     ) -> PromptValue:
         template = ChatPromptTemplate.from_messages([
             ("system", self.config["system"]),
@@ -111,6 +112,7 @@ class Prompts:
             "mutation_evidence": mutation.model_dump_json(),
             "cnv_evidence": cnv.model_dump_json(),
             "metadata_evidence": metadata.model_dump_json(),
+            "tool_statistics": tool_statistics,
             "response_schema": json.dumps(
                 JudgeProposal.model_json_schema(), ensure_ascii=False
             ),

@@ -131,6 +131,7 @@ class DependencyRAGGraph:
             mutation=complete["mutation_evidence"],
             cnv=complete["cnv_evidence"],
             metadata=complete["metadata_evidence"],
+            tool_statistics=complete["tool_statistics"],
         )
         proposal = cast(JudgeProposal, self.judge_llm.invoke(prompt))
         adjustment = float(np.clip(
