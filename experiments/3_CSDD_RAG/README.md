@@ -64,6 +64,24 @@ Run a configured batch of held-out ModelIDs:
 python3 batch.py
 ```
 
+Run the fixed 1000-reference / 200-test evaluation for 10 target genes:
+
+```bash
+python3 big_batch.py config/big_batch_settings.yaml
+```
+
+Prepare and inspect the split without calling any LLM:
+
+```bash
+python3 big_batch.py config/big_batch_settings.yaml --prepare-only
+```
+
+This creates the configured 1000/200 train/test CSV files and restricts
+retrieval to the same first 1000 reference ModelIDs for every prediction.
+Models without RNA-expression data are listed separately and excluded because
+the pipeline requires expression-first retrieval. Progress is persisted after
+each prediction, and `resume: true` continues an interrupted run.
+
 Change `target_gene`, `test_model_ids`, `use_llm`, and `run_ablations` in
 `config/batch_settings.yaml`. A separate `predictions.csv` and `metrics.json`
 are written for exactly the ModelIDs listed in that file. Per-category TP, FP,
@@ -82,10 +100,19 @@ remain in ignored `config/secrets.yaml`.
 Each run is saved under `runs/<gene>_<ModelID>/`:
 
 - `retrieval/expression_top_30.csv`: primary expression retrieval;
+- `retrieval/mutation_top_30.csv`: mutation similarity for expression candidates;
+- `retrieval/cnv_top_30.csv`: CNV similarity for expression candidates;
+- `retrieval/metadata_top_30.csv`: metadata similarity for expression candidates;
 - `retrieval/reranked_top_30.csv`: contextual scores and final ranking;
 - `retrieval/final_top_k.csv`: cases used by KNN and agents;
 - `retrieval/knn_baseline.json`: deterministic prediction and uncertainty;
-- `evidence/`: exact local tables supplied to agents;
+- `tools/*_prompt_evidence.json`: train-only statistics sent to each agent;
+- `tools/*_associations.csv`: mutation, CNV, metadata, and selected expression
+  association reports;
+- `tools/shared_reports.json`: path to the full expression correlation report,
+  stored once per target gene and reference cohort under `runs/_tool_reports`;
+- `evidence/`: separate expression, mutation, CNV, and metadata tables supplied
+  to their corresponding agents; each table contains only its own similarity;
 - `prompts/`: every prompt and estimated token count;
 - `agent_outputs/`: structured evidence and judge decision;
 - `prediction.json`: prediction without the hidden answer;
@@ -110,3 +137,23 @@ flowchart TD
     P --> T[Threshold-based category]
     T --> V[Open hidden effect and evaluate]
 ```
+
+## Statistical tools
+
+The `tools` package prepares numerical evidence before any LLM call:
+
+- `RelatedGenes.py` scans all expression genes on reference models only,
+  calculates Pearson and Spearman associations with the target Gene Effect,
+  applies Benjamini-Hochberg FDR correction, and selects related genes;
+- `Expression.py` fits an expression Ridge regression and reports
+  cross-validated error and an approximate prediction interval;
+- `Mutation.py` compares mutated and non-mutated reference groups with Welch's
+  t-test, effect sizes, confidence intervals, FDR, and a Ridge model;
+- `CNV.py` calculates CNV correlations and a Ridge model;
+- `Metadata.py` compares the test metadata groups with the remaining reference
+  models and fits a one-hot encoded Ridge model;
+- `Pipeline.py` runs the four tools and builds the compact evidence packages
+  used by the modality agents.
+
+The held-out test Gene Effect is not available to these tools. It is opened
+only after the final prediction is produced.

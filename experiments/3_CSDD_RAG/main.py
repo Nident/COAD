@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -16,6 +17,7 @@ from Data import DataRepository, TrainingData
 from Graph import DependencyRAGGraph
 from Retrieval import MultiOmicsRetriever, RetrievalResult
 from Schemas import CompletedGraphState, EffectCategory, GraphInput
+from tools import MultiOmicsToolbox, ToolEvidence
 
 
 TOKEN_ENCODING = tiktoken.get_encoding("cl100k_base")
@@ -40,7 +42,23 @@ def frame_json(table: pd.DataFrame) -> str:
 
 
 def dict_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(
+        json_ready(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def json_ready(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(key): json_ready(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_ready(item) for item in value]
+    if isinstance(value, np.generic):
+        return json_ready(value.item())
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    return value
 
 
 def prompt_metrics(text: str) -> dict[str, object]:
@@ -68,16 +86,18 @@ def effect_category(
 def graph_input(
     data: TrainingData,
     result: RetrievalResult,
+    evidence: ToolEvidence,
 ) -> GraphInput:
     return {
         "gene": data.target_gene,
         "test_model_id": data.test_model_id,
         "baseline": dict_json(result.baseline),
         "neighbours": frame_json(result.top_k),
-        "expression_data": frame_json(result.expression_context),
-        "mutation_data": dict_json(result.mutation_context),
-        "cnv_data": frame_json(result.cnv_context),
-        "metadata_data": frame_json(result.metadata_context),
+        "expression_data": dict_json(evidence.prompt_packages["expression"]),
+        "mutation_data": dict_json(evidence.prompt_packages["mutation"]),
+        "cnv_data": dict_json(evidence.prompt_packages["cnv"]),
+        "metadata_data": dict_json(evidence.prompt_packages["metadata"]),
+        "tool_statistics": dict_json(evidence.judge_summary),
     }
 
 
@@ -86,6 +106,18 @@ def save_retrieval(run_dir: Path, result: RetrievalResult) -> None:
     retrieval_dir.mkdir(parents=True, exist_ok=True)
     result.expression_top.to_csv(
         retrieval_dir / "expression_top_30.csv",
+        index=False,
+    )
+    result.mutation_candidates.to_csv(
+        retrieval_dir / "mutation_top_30.csv",
+        index=False,
+    )
+    result.cnv_candidates.to_csv(
+        retrieval_dir / "cnv_top_30.csv",
+        index=False,
+    )
+    result.metadata_candidates.to_csv(
+        retrieval_dir / "metadata_top_30.csv",
         index=False,
     )
     result.reranked_top.to_csv(
@@ -107,7 +139,45 @@ def save_retrieval(run_dir: Path, result: RetrievalResult) -> None:
         evidence_dir / "metadata_context.csv",
         index=False,
     )
-    save_json(evidence_dir / "mutation_context.json", result.mutation_context)
+    result.mutation_context.to_csv(
+        evidence_dir / "mutation_context.csv",
+        index=False,
+    )
+
+
+def save_tool_evidence(
+    run_dir: Path,
+    data: TrainingData,
+    evidence: ToolEvidence,
+) -> None:
+    tools_dir = run_dir / "tools"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    for modality, package in evidence.prompt_packages.items():
+        save_json(tools_dir / f"{modality}_prompt_evidence.json", json_ready(package))
+    save_json(
+        tools_dir / "judge_statistical_summary.json",
+        json_ready(evidence.judge_summary),
+    )
+    reference_signature = hashlib.sha1(
+        "\n".join(data.reference_effects.index.astype(str)).encode("utf-8")
+    ).hexdigest()[:12]
+    shared_dir = (
+        run_dir.parent
+        / "_tool_reports"
+        / safe_name(data.target_column)
+        / reference_signature
+    )
+    shared_reports: dict[str, str] = {}
+    for name, table in evidence.artifacts.items():
+        if name.startswith("all_expression"):
+            shared_dir.mkdir(parents=True, exist_ok=True)
+            path = shared_dir / f"{name}.csv"
+            if not path.exists():
+                table.to_csv(path, index=False)
+            shared_reports[name] = str(path)
+        else:
+            table.to_csv(tools_dir / f"{name}.csv", index=False)
+    save_json(tools_dir / "shared_reports.json", shared_reports)
 
 
 def save_prepared_prompts(
@@ -229,35 +299,36 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("target_gene", nargs="?")
     parser.add_argument("test_model_id", nargs="?")
+    parser.add_argument("--reference-model-ids-file")
     parser.add_argument("--no-llm", action="store_true")
     parser.add_argument("--no-ablations", action="store_true")
     return parser.parse_args()
 
 
-def main() -> None:
-    arguments = parse_arguments()
-    project_dir = Path(__file__).parent
-    config_path = project_dir / "config" / "settings.yaml"
-    config = cast(
-        dict[str, Any],
-        yaml.safe_load(config_path.read_text(encoding="utf-8")),
-    )
-    target_gene = arguments.target_gene or config["input"]["target_gene"]
-    test_model_id = (
-        arguments.test_model_id or config["input"]["test_model_id"]
-    )
+def run_case(
+    project_dir: Path,
+    config: dict[str, Any],
+    repository: DataRepository,
+    data: TrainingData,
+    run_target_gene: str,
+    use_llm: bool,
+    execute_ablations: bool,
+    configured_reference_model_count: int | None = None,
+    graph: DependencyRAGGraph | None = None,
+    toolbox: MultiOmicsToolbox | None = None,
+    update_global_summary: bool = False,
+) -> tuple[dict[str, object], Path]:
     retrieval_config = cast(dict[str, Any], config["retrieval"])
     prediction_config = cast(dict[str, Any], config["prediction"])
-    use_llm = bool(prediction_config["use_llm"]) and not arguments.no_llm
-    run_name = f"{safe_name(target_gene)}_{safe_name(test_model_id)}"
+    run_name = (
+        f"{safe_name(run_target_gene)}_{safe_name(data.test_model_id)}"
+    )
     runs_dir = (project_dir / "config" / config["output"]["runs"]).resolve()
     run_dir = runs_dir / run_name
     if run_dir.exists():
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    repository = DataRepository(config_path)
-    data = repository.load(target_gene, test_model_id)
     retriever = MultiOmicsRetriever(retrieval_config)
     result = retriever.retrieve(
         data,
@@ -266,15 +337,22 @@ def main() -> None:
         bool(retrieval_config["use_metadata_rerank"]),
     )
     save_retrieval(run_dir, result)
+    active_toolbox = toolbox or MultiOmicsToolbox(
+        cast(dict[str, Any], config["analysis"])
+    )
+    tool_evidence = active_toolbox.analyze(data, result)
+    save_tool_evidence(run_dir, data, tool_evidence)
     save_json(run_dir / "input.json", {
         "TargetGene": data.target_gene,
         "TargetColumn": data.target_column,
         "TestModelID": data.test_model_id,
+        "ConfiguredReferenceModelCount": configured_reference_model_count,
+        "AvailableReferenceModelCount": len(data.reference_effects),
         "UseLLM": use_llm,
     })
 
     ablations: list[dict[str, object]] = []
-    if bool(config["experiments"]["run_ablations"]) and not arguments.no_ablations:
+    if execute_ablations:
         ablations = run_ablations(retriever, data)
 
     baseline_effect = float(result.baseline["weighted_prediction"])
@@ -284,11 +362,11 @@ def main() -> None:
     llm_adjustment = 0.0
 
     if use_llm:
-        graph = DependencyRAGGraph(project_dir / "config")
-        state_input = graph_input(data, result)
-        save_prepared_prompts(run_dir, graph, state_input)
+        active_graph = graph or DependencyRAGGraph(project_dir / "config")
+        state_input = graph_input(data, result, tool_evidence)
+        save_prepared_prompts(run_dir, active_graph, state_input)
         try:
-            state = graph.invoke(state_input)
+            state = active_graph.invoke(state_input)
         except Exception as error:
             save_json(run_dir / "error.json", {
                 "error_type": type(error).__name__,
@@ -318,7 +396,10 @@ def main() -> None:
     }
     save_json(run_dir / "prediction.json", prediction)
 
-    actual_effect = repository.actual_effect(data.target_column, test_model_id)
+    actual_effect = repository.actual_effect(
+        data.target_column,
+        data.test_model_id,
+    )
     actual_category = effect_category(actual_effect, thresholds)
     evaluation: dict[str, object] = {
         **prediction,
@@ -353,9 +434,58 @@ def main() -> None:
         })
         pd.DataFrame(ablations).to_csv(run_dir / "ablations.csv", index=False)
 
-    summary = evaluation_summary(runs_dir)
-    if summary is not None:
-        save_json(runs_dir / "evaluation_summary.json", summary)
+    if update_global_summary:
+        summary = evaluation_summary(runs_dir)
+        if summary is not None:
+            save_json(runs_dir / "evaluation_summary.json", summary)
+    return evaluation, run_dir
+
+
+def main() -> None:
+    arguments = parse_arguments()
+    project_dir = Path(__file__).parent
+    config_path = project_dir / "config" / "settings.yaml"
+    config = cast(
+        dict[str, Any],
+        yaml.safe_load(config_path.read_text(encoding="utf-8")),
+    )
+    target_gene = arguments.target_gene or config["input"]["target_gene"]
+    test_model_id = (
+        arguments.test_model_id or config["input"]["test_model_id"]
+    )
+    prediction_config = cast(dict[str, Any], config["prediction"])
+    use_llm = bool(prediction_config["use_llm"]) and not arguments.no_llm
+    execute_ablations = (
+        bool(config["experiments"]["run_ablations"])
+        and not arguments.no_ablations
+    )
+    reference_model_ids = None
+    if arguments.reference_model_ids_file:
+        reference_model_ids = cast(
+            list[str],
+            pd.read_csv(arguments.reference_model_ids_file)["ModelID"].tolist(),
+        )
+    repository = DataRepository(config_path)
+    data = repository.load(
+        target_gene,
+        test_model_id,
+        reference_model_ids,
+    )
+    evaluation, run_dir = run_case(
+        project_dir=project_dir,
+        config=config,
+        repository=repository,
+        data=data,
+        run_target_gene=target_gene,
+        use_llm=use_llm,
+        execute_ablations=execute_ablations,
+        configured_reference_model_count=(
+            len(reference_model_ids)
+            if reference_model_ids is not None
+            else None
+        ),
+        update_global_summary=True,
+    )
     print(json.dumps(evaluation, ensure_ascii=False, indent=2))
     print(run_dir)
 

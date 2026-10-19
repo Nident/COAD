@@ -59,7 +59,6 @@ class Prompts:
         gene: str,
         test_model_id: str,
         baseline: str,
-        neighbours: str,
         modality_data: str,
     ) -> PromptValue:
         schema = self.ANALYST_SCHEMAS[role]
@@ -71,7 +70,6 @@ class Prompts:
             "gene": gene,
             "test_model_id": test_model_id,
             "baseline": baseline,
-            "neighbours": neighbours,
             "modality_data": modality_data,
             "response_schema": json.dumps(
                 schema.model_json_schema(), ensure_ascii=False
@@ -91,6 +89,7 @@ class Prompts:
         mutation: MutationEvidence,
         cnv: CNVEvidence,
         metadata: MetadataEvidence,
+        tool_statistics: str,
     ) -> PromptValue:
         template = ChatPromptTemplate.from_messages([
             ("system", self.config["system"]),
@@ -113,6 +112,7 @@ class Prompts:
             "mutation_evidence": mutation.model_dump_json(),
             "cnv_evidence": cnv.model_dump_json(),
             "metadata_evidence": metadata.model_dump_json(),
+            "tool_statistics": tool_statistics,
             "response_schema": json.dumps(
                 JudgeProposal.model_json_schema(), ensure_ascii=False
             ),

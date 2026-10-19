@@ -1,0 +1,15 @@
+{
+  "include": ["agent", "data", "evaluation", "main.py", "mcp_server", "research", "tests"],
+  "venvPath": "../..",
+  "venv": ".venv",
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportArgumentType": "none",
+  "reportCallIssue": "none",
+  "reportReturnType": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportTypedDictNotRequiredAccess": "none"
+}

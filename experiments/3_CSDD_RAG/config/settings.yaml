@@ -5,7 +5,6 @@ data:
   mutations: OmicsSomaticMutations.csv
   cnv: OmicsCNGeneWGS.csv
   metadata: Model.csv
-  related_genes: static_gene_selection/target_related_genes.jsonl
 
 input:
   target_gene: ACO2
@@ -33,6 +32,13 @@ retrieval:
   use_mutation_rerank: true
   use_cnv_rerank: true
   use_metadata_rerank: true
+
+analysis:
+  related_genes_top_k: 20
+  fdr_alpha: 0.05
+  regression_folds: 5
+  ridge_alpha: 10.0
+  prompt_feature_limit: 20
 
 prediction:
   use_llm: true

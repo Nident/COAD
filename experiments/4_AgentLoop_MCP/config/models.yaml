@@ -1,0 +1,10 @@
+defaults:
+  temperature: 0
+  timeout: 60
+  max_retries: 1
+  max_tokens: 1200
+model:
+  name: deepseek-flash
+  api_key: deepseek
+  base_url: https://api.deepseek.com/v1
+  use_llm: True

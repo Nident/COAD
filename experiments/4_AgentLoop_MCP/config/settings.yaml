@@ -1,0 +1,48 @@
+data:
+  root: ../../../data
+  crispr: CRISPRGeneEffect.csv
+  expression: OmicsExpressionTPMLogp1HumanProteinCodingGenes.csv
+  mutations: OmicsSomaticMutations.csv
+  cnv: OmicsCNGeneWGS.csv
+  metadata: Model.csv
+  cache_dir: ../cache
+  cache_version: "1"
+
+target_genes:
+  - CRKL (1399)
+
+split:
+  seed: 20261015
+  validation_fraction: 0.20
+  test_model_id: ACH-000475
+  patient_grouped: true
+
+research:
+  max_iterations: 32
+  max_tool_calls: 40
+  max_seconds: 900
+  max_validation_submissions: 4
+  fdr_alpha: 0.05
+  minimum_effect_size: 0.15
+  minimum_validation_improvement: 0.01
+  minimum_robustness_fraction: 0.60
+  cv_folds: 5
+  candidate_alphas: [0.1, 1.0, 10.0, 100.0]
+  knn_k: 10
+
+prediction:
+  strong_effect_threshold: -1.0
+  weak_effect_threshold: -0.5
+  interval_z: 1.96
+  minimum_interval_width: 0.05
+
+artifacts:
+  root: ../artifacts
+  trajectories: ../trajectories
+  results: ../results
+  
+models:
+  provider: deterministic
+  name: deterministic-policy
+  temperature: 0
+  use_llm: false

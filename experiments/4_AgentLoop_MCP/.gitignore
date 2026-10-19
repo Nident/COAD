@@ -1,0 +1,7 @@
+config/secrets.yaml
+cache/
+artifacts/
+trajectories/
+results/
+__pycache__/
+*/__pycache__/

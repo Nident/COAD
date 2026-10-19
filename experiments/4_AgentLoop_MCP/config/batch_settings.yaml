@@ -1,0 +1,17 @@
+batch_name: CRKL_500_models
+target_gene: CRKL (1399)
+
+# If empty, batch_runner.py deterministically selects models from CRISPRGeneEffect.csv.
+test_model_ids: []
+
+# Process 50 independent MCP runs per checkpoint, up to 500 test models total.
+batch_size: 50
+max_test_models: 500
+
+use_llm: true
+run_ablations: false
+
+output:
+  directory: ../batch_results
+  predictions_file: predictions.jsonl
+  summary_file: summary.json

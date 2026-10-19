@@ -78,7 +78,6 @@ class DependencyRAGGraph:
             gene=state["gene"],
             test_model_id=state["test_model_id"],
             baseline=state["baseline"],
-            neighbours=state["neighbours"],
             modality_data=state[field],
         )
 
@@ -132,6 +131,7 @@ class DependencyRAGGraph:
             mutation=complete["mutation_evidence"],
             cnv=complete["cnv_evidence"],
             metadata=complete["metadata_evidence"],
+            tool_statistics=complete["tool_statistics"],
         )
         proposal = cast(JudgeProposal, self.judge_llm.invoke(prompt))
         adjustment = float(np.clip(
