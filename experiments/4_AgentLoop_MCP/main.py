@@ -64,7 +64,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Autonomous DepMap Gene Effect research agent")
-    parser.add_argument("--gene", default="ACO2")
+    parser.add_argument("--gene", default="CRKL (1399)")
     parser.add_argument("--test-model-id", default="ACH-000475")
     parser.add_argument("--resume")
     parser.add_argument("--config", type=Path, default=Path("config/settings.yaml"))

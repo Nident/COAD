@@ -4,5 +4,7 @@ defaults:
   max_retries: 1
   max_tokens: 1200
 model:
-  name: deterministic-policy
-  use_llm: false
+  name: deepseek-flash
+  api_key: deepseek
+  base_url: https://api.deepseek.com/v1
+  use_llm: True

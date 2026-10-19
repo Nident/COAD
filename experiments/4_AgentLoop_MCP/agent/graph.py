@@ -15,6 +15,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain_core.tools import ToolException
 from langgraph.graph import END, START, StateGraph
+from pydantic import SecretStr
 
 from research.evidence import register
 from research.hypotheses import Hypothesis
@@ -115,6 +116,26 @@ class MCPResearchAgent:
         name = str(call.get("name", "")); arguments = call.get("args", {})
         if name not in self.tool_map:
             return None
+        if not isinstance(arguments, dict):
+            return None
+        # The LLM may invent identifiers from the prompt or from a previous
+        # run.  Scope all tool arguments back to the immutable run context.
+        arguments = dict(arguments)
+        if "run_id" in arguments:
+            arguments["run_id"] = self.run_id
+        if "target_gene" in arguments:
+            arguments["target_gene"] = self.target_gene
+        if "test_model_id" in arguments:
+            arguments["test_model_id"] = self.test_model_id
+        if name == "rank_candidate_genes":
+            sources = arguments.get("evidence_sources", []) if isinstance(arguments, dict) else []
+            allowed = {"expression_dependency", "cnv_dependency"}
+            if not isinstance(sources, list) or any(source not in allowed for source in sources):
+                return None
+        if name == "inspect_artifact" and isinstance(arguments, dict):
+            artifact_id = arguments.get("artifact_id")
+            if not isinstance(artifact_id, str) or not artifact_id.startswith("artifact_"):
+                return None
         return {"tool": name, "arguments": arguments}
 
     def research_model(self, state: ResearchState) -> ResearchState:
@@ -217,10 +238,26 @@ class MCPResearchAgent:
         async with self.client.session("depmap") as session:
             tools = await load_mcp_tools(session)
             self.tool_map = {tool.name: tool for tool in tools}
-            if bool(self.config.get("models", {}).get("use_llm", False)):
+            model_file = self.config_path.parent / "models.yaml"
+            model_file_config = yaml.safe_load(model_file.read_text(encoding="utf-8")) if model_file.exists() else {}
+            model_file_config = model_file_config or {}
+            configured_model = model_file_config.get("model", {})
+            settings_model = self.config.get("models", {})
+            use_llm = bool(configured_model.get("use_llm", settings_model.get("use_llm", False)))
+            if use_llm:
                 from langchain_openai import ChatOpenAI
-                model_name = str(self.config.get("models", {}).get("name", "gpt-4o-mini"))
-                self.llm = ChatOpenAI(model=model_name, temperature=0, api_key=os.environ.get("OPENAI_API_KEY"), timeout=60, max_retries=1).bind_tools(tools)
+                model_name = str(configured_model.get("name", settings_model.get("name", "gpt-4o-mini")))
+                secrets_path = self.config_path.parent / "secrets.yaml"
+                secrets_config = yaml.safe_load(secrets_path.read_text(encoding="utf-8")) if secrets_path.exists() else {}
+                api_keys = (secrets_config or {}).get("api_keys", {})
+                api_key_name = str(configured_model.get("api_key", "deepseek" if model_name.startswith("deepseek") else "openai"))
+                raw_api_key = os.environ.get("OPENAI_API_KEY") or api_keys.get(api_key_name)
+                api_key = SecretStr(raw_api_key) if raw_api_key else None
+                base_url = str(configured_model.get("base_url", "")) or os.environ.get("OPENAI_BASE_URL") or os.environ.get("DEEPSEEK_BASE_URL")
+                llm_kwargs: dict[str, Any] = {"model": model_name, "temperature": 0, "api_key": api_key, "timeout": 60, "max_retries": 1}
+                if base_url:
+                    llm_kwargs["base_url"] = base_url
+                self.llm = ChatOpenAI(**llm_kwargs).bind_tools(tools)
             self.trajectory.append("tool_discovery", {"run_id": self.run_id, "tools": sorted(self.tool_map)})
             final = await self.graph.ainvoke(state, config={"recursion_limit": int(self.config["research"]["max_iterations"]) * 5})
         final = cast(ResearchState, final)

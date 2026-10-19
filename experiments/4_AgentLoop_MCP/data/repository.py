@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import warnings
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 
 import numpy as np
 import pandas as pd
@@ -47,6 +47,16 @@ class DataRepository:
     @staticmethod
     def gene_symbol(value: str) -> str:
         return re.sub(r"\s+\(\d+\)$", "", str(value)).strip()
+
+    @staticmethod
+    def _is_missing_scalar(value: Any) -> bool:
+        """Return a boolean only for scalar missing-value checks.
+
+        ``pandas.isna`` is overloaded for both scalars and array-like values;
+        the latter returns a Series/ndarray whose truth value is undefined.
+        """
+        result = pd.isna(value)
+        return bool(result) if isinstance(result, (bool, np.bool_)) else False
 
     def _source(self, key: str) -> Path:
         filename = self.config["data"][key]
@@ -172,19 +182,24 @@ class DataRepository:
         require_scope(split, [test_model_id], "TEST")
         profile: dict[str, Any] = {"ModelID": test_model_id, "target_gene": self.gene_symbol(target_gene), "split_scope": "TEST", "missingness": {}}
         for modality in modalities:
+            # Accept common plural aliases produced by LLM tool calls while
+            # keeping the repository's internal modality names canonical.
+            modality = {"mutations": "mutation", "expressions": "expression", "copy_number": "cnv", "copy-number": "cnv"}.get(modality, modality)
             if modality == "expression":
                 frame = self._expression([test_model_id], [target_gene])
                 col = self._canonical_column("expression", target_gene)
-                profile[modality] = {self.gene_symbol(col): None if pd.isna(frame.iloc[0][col]) else float(frame.iloc[0][col])} if len(frame) else {}
+                value = frame.iloc[0][col] if len(frame) else None
+                profile[modality] = {self.gene_symbol(col): None if self._is_missing_scalar(value) else float(cast(Any, value))} if len(frame) else {}
             elif modality == "cnv":
                 frame = self._cnv([test_model_id], [target_gene])
                 col = self._canonical_column("cnv", target_gene)
-                profile[modality] = {self.gene_symbol(col): None if len(frame) == 0 or pd.isna(frame.iloc[0][col]) else float(frame.iloc[0][col])}
+                value = frame.iloc[0][col] if len(frame) else None
+                profile[modality] = {self.gene_symbol(col): None if self._is_missing_scalar(value) else float(cast(Any, value))}
             elif modality == "mutation":
                 profile[modality] = {self.gene_symbol(target_gene): bool(self._mutations([test_model_id], [target_gene]).iloc[0].iloc[0])}
             elif modality == "metadata":
                 row = self._models().loc[test_model_id]
-                profile[modality] = {key: (None if pd.isna(row.get(key)) else str(row.get(key))) for key in self.META_FIELDS if key != "ModelID" and key in row.index}
+                profile[modality] = {key: (None if self._is_missing_scalar(row.get(key)) else str(row.get(key))) for key in self.META_FIELDS if key != "ModelID" and key in row.index}
             else:
                 raise ValueError(f"Unsupported modality: {modality}")
         return {"status": "OK", "profile": profile, "protected_fields": ["GeneEffect", "target_gene_gene_effect"]}
@@ -193,7 +208,11 @@ class DataRepository:
         page_size = max(1, min(int(page_size), 1000))
         page = max(0, int(page))
         selected = frame.iloc[page * page_size : (page + 1) * page_size]
-        return {"rows": selected.where(pd.notna(selected), None).to_dict(orient="records"), "page": page, "page_size": page_size, "total_rows": len(frame)}
+        records = cast(
+            list[dict[str, Any]],
+            selected.where(pd.notna(selected), None).to_dict(orient="records"),
+        )
+        return {"rows": records, "page": page, "page_size": page_size, "total_rows": len(frame)}
 
     def get_models(self, model_ids: list[str], fields: list[str], run_id: str, page: int, page_size: int) -> dict[str, Any]:
         self.run(run_id)
@@ -261,7 +280,8 @@ class DataRepository:
         table["adjusted_p_value"] = multipletests(table["p_value"].fillna(1.0), method="fdr_bh")[1]
         table = table.sort_values(["adjusted_p_value", "effect_size"], ascending=[True, False]).head(max(1, min(top_k, 100)))
         artifact = self.store(run_id).table(f"screen_{modality}_dependency_associations", table, {"target_gene": target_gene, "modality": modality, "top_k": top_k}, "TRAIN")
-        return {"status": "OK", "modality": modality, "rows": table.to_dict(orient="records"), "split_scope": "TRAIN", "artifact_id": artifact, "tested_features": len(rows), "fdr_method": "benjamini-hochberg"}
+        table_rows = cast(list[dict[str, Any]], table.to_dict(orient="records"))
+        return {"status": "OK", "modality": modality, "rows": table_rows, "split_scope": "TRAIN", "artifact_id": artifact, "tested_features": len(rows), "fdr_method": "benjamini-hochberg"}
 
     def screen_expression(self, target_gene: str, run_id: str, top_k: int = 20) -> dict[str, Any]:
         return self._screen(target_gene, run_id, "expression", top_k=top_k)
@@ -272,8 +292,14 @@ class DataRepository:
         rows = []
         for other in frame.columns[1:]:
             pair = frame[[frame.columns[0], other]].dropna()
-            rho, p = stats.spearmanr(pair.iloc[:, 0], pair.iloc[:, 1]) if len(pair) >= 3 else (np.nan, np.nan)
-            rows.append({"gene": self.gene_symbol(other), "estimate": float(rho) if np.isfinite(rho) else None, "p_value": float(p) if np.isfinite(p) else None, "sample_size": len(pair), "relationship": "coexpression"})
+            if len(pair) >= 3:
+                rho_raw, p_raw = stats.spearmanr(pair.iloc[:, 0], pair.iloc[:, 1])
+                rho = float(cast(Any, rho_raw))
+                p_value = float(cast(Any, p_raw))
+            else:
+                rho = float("nan")
+                p_value = float("nan")
+            rows.append({"gene": self.gene_symbol(other), "estimate": rho if np.isfinite(rho) else None, "p_value": p_value if np.isfinite(p_value) else None, "sample_size": len(pair), "relationship": "coexpression"})
         return {"status": "OK", "rows": rows, "split_scope": "TRAIN", "artifact_id": self.store(run_id).json("calculate_coexpression", rows, {"gene": gene, "candidate_genes": candidate_genes}, "TRAIN")}
 
     def describe_distribution(self, target_gene: str, run_id: str, scope: str = "TRAIN") -> dict[str, Any]:
@@ -291,7 +317,7 @@ class DataRepository:
         rows = []
         for value, group in frame.groupby(field, dropna=False):
             outcome = y.reindex(group.index).dropna()
-            rows.append({"field": field, "value": None if pd.isna(value) else str(value), "sample_size": len(outcome), "mean_gene_effect": float(outcome.mean()) if len(outcome) else None})
+            rows.append({"field": field, "value": None if self._is_missing_scalar(value) else str(value), "sample_size": len(outcome), "mean_gene_effect": float(outcome.mean()) if len(outcome) else None})
         return {"status": "OK", "rows": rows, "split_scope": "TRAIN", "relationship": "metadata_stratification"}
 
     def _feature_frame(self, plan: dict[str, Any], model_ids: list[str]) -> pd.DataFrame:
@@ -328,7 +354,8 @@ class DataRepository:
         for column in x.columns:
             pair = pd.concat([pd.to_numeric(x[column], errors="coerce"), y], axis=1).dropna()
             if len(pair) >= 8 and pair.iloc[:, 0].nunique() > 1:
-                rho = stats.spearmanr(pair.iloc[:, 0], pair.iloc[:, 1]).statistic
+                rho_raw, _ = stats.spearmanr(pair.iloc[:, 0], pair.iloc[:, 1])
+                rho = float(cast(Any, rho_raw))
                 if np.isfinite(rho):
                     scored.append((column, abs(float(rho))))
         return [column for column, _ in sorted(scored, key=lambda pair: (-pair[1], pair[0]))[:max(1, top_k)]]
