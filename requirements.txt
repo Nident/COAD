@@ -11,5 +11,9 @@ langgraph
 jupyterlab
 ipykernel
 nbconvert
-pyright
+pyright>=1.1.414
 tiktoken
+fastmcp>=2.14,<3
+mcp>=1.26,<2
+langchain-mcp-adapters>=0.2,<1
+pyarrow>=18,<24
